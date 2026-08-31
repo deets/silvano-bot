@@ -1,0 +1,11 @@
+#+STARTUP: inlineimages
+* Silvano Bot
+
+** LilyGO ESP32-S2 T8 Dev Kit
+
+ - [[https://documentation.espressif.com/esp32-s2_datasheet_en.html][Espressif Datasheet]]
+
+
+*** Pinout
+
+[[file:lilygo-t8-s2-v11.jpg]]
