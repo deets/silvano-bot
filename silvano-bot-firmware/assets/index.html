@@ -345,13 +345,10 @@
         const cartesianX = deltaX;
 
         // Angle in radians [-PI, PI]
-        current.theta = Math.atan2(cartesianY, cartesianX);
+        current.theta = Math.atan2(cartesianX, cartesianY);
 
         // Angle in degrees [0, 360)
         let deg = current.theta * (180 / Math.PI);
-        if (deg < 0) {
-          deg += 360;
-        }
         current.angle = deg;
 
         // Normalized cartesian [-1.0, 1.0]
