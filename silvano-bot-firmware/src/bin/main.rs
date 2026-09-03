@@ -171,13 +171,12 @@ async fn dispatch(request: &str, socket: &mut TcpSocket<'_>) {
         if request.starts_with("GET / ") {
             send_http_response(socket, INDEX_HTML, 200).await
         } else if request.starts_with("GET /move?") {
-            println!("move: {}", request);
             let mut headers = [httparse::EMPTY_HEADER; 64];
             let mut req = httparse::Request::new(&mut headers);
             match req.parse(request.as_bytes()) {
                 Ok(_) => {
-                    println!("path: {:?}", req.path);
                     let movement = parse_query_string_for_motor_movement(req.path);
+                    println!("{:?}", movement);
                     send_http_response(socket, b"<html><body>Moving</body></html>", 200).await
                 }
                 Err(_) => send_http_response(socket, b"<html><body>Error</body></html>", 500).await,
