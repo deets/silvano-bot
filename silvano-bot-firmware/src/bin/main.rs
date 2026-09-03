@@ -13,13 +13,11 @@
 #![feature(int_format_into)]
 
 use core::{fmt::NumBuffer, net::Ipv4Addr, str::FromStr};
-use edge_nal_embassy::UdpError;
 use embassy_executor::Spawner;
 use embassy_net::{
-    IpListenEndpoint, Ipv4Cidr, Runner, Stack, StackResources, StaticConfigV4, tcp::TcpSocket,
+    IpListenEndpoint, Ipv4Cidr, Runner, StackResources, StaticConfigV4, tcp::TcpSocket,
 };
 use embassy_time::{Duration, Timer};
-use embedded_io::ErrorType;
 use embedded_io_async::Write;
 use esp_alloc as _;
 use esp_backtrace as _;
@@ -31,6 +29,7 @@ use esp_radio::{
     Controller,
     wifi::{AccessPointConfig, ModeConfig, WifiApState, WifiController, WifiDevice, WifiEvent},
 };
+use silvano_bot_firmware::movement::parse_query_string_for_motor_movement;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -95,7 +94,9 @@ async fn main(spawner: Spawner) -> ! {
 
     spawner.spawn(connection(controller)).ok();
     spawner.spawn(net_task(runner)).ok();
-    spawner.spawn(run_dhcp(stack, gw_ip_addr_str)).ok();
+    spawner
+        .spawn(silvano_bot_firmware::dhcp::run_dhcp(stack, gw_ip_addr_str))
+        .ok();
 
     let mut rx_buffer = [0; 1536];
     let mut tx_buffer = [0; 1536];
@@ -159,8 +160,6 @@ async fn main(spawner: Spawner) -> ! {
             };
         }
         socket.close();
-        Timer::after(Duration::from_millis(1000)).await;
-
         socket.abort();
     }
 }
@@ -170,10 +169,22 @@ async fn dispatch(request: &str, socket: &mut TcpSocket<'_>) {
     println!();
     if let Err(e) = {
         if request.starts_with("GET / ") {
-            send_http_response(socket, INDEX_HTML).await
+            send_http_response(socket, INDEX_HTML, 200).await
+        } else if request.starts_with("GET /move?") {
+            println!("move: {}", request);
+            let mut headers = [httparse::EMPTY_HEADER; 64];
+            let mut req = httparse::Request::new(&mut headers);
+            match req.parse(request.as_bytes()) {
+                Ok(_) => {
+                    println!("path: {:?}", req.path);
+                    let movement = parse_query_string_for_motor_movement(req.path);
+                    send_http_response(socket, b"<html><body>Moving</body></html>", 200).await
+                }
+                Err(_) => send_http_response(socket, b"<html><body>Error</body></html>", 500).await,
+            }
         } else {
             println!("Unknown request");
-            send_http_response(socket, b"<html><body>Unknown request</body></html>").await
+            send_http_response(socket, b"<html><body>Unknown request</body></html>", 400).await
         }
     } {
         println!("write error: {:?}", e);
@@ -183,13 +194,17 @@ async fn dispatch(request: &str, socket: &mut TcpSocket<'_>) {
 async fn send_http_response(
     socket: &mut TcpSocket<'_>,
     payload: &[u8],
+    status: usize,
 ) -> Result<(), embassy_net::tcp::Error> {
-    socket
-        .write_all(b"HTTP/1.0 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: ")
-        .await?;
     let mut buf = NumBuffer::new();
-    let output = payload.len().format_into(&mut buf);
-    socket.write_all(output.as_bytes()).await?;
+    socket.write_all(b"HTTP/1.0 ").await?;
+    let status = status.format_into(&mut buf);
+    socket.write_all(status.as_bytes()).await?;
+    socket
+        .write_all(b" OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: ")
+        .await?;
+    let content_length = payload.len().format_into(&mut buf);
+    socket.write_all(content_length.as_bytes()).await?;
     socket.write_all(b"\r\n\r\n").await?;
     let mut written = 0;
     while written < payload.len() {
@@ -199,91 +214,6 @@ async fn send_http_response(
         socket.flush().await?;
     }
     Ok(())
-}
-
-use core::net::SocketAddr;
-use edge_nal_060::{UdpReceive as UdpReceive060, UdpSend as UdpSend060};
-
-/// I couldn't solve the leaky dependency of edge_nal being
-/// used in two versions, so this simple wrapper just relays
-/// the calls.
-struct UdpSocketWrapper<'a, S>
-where
-    S: UdpSend060 + UdpReceive060,
-{
-    socket: &'a mut S,
-}
-
-impl<S> edge_nal::UdpSend for UdpSocketWrapper<'_, S>
-where
-    S: UdpSend060 + UdpReceive060 + ErrorType<Error = UdpError>,
-{
-    async fn send(
-        &mut self,
-        remote: core::net::SocketAddr,
-        data: &[u8],
-    ) -> Result<(), Self::Error> {
-        self.socket.send(remote, data).await
-    }
-}
-
-impl<S> edge_nal::UdpReceive for UdpSocketWrapper<'_, S>
-where
-    S: UdpReceive060 + UdpSend060 + ErrorType<Error = UdpError>,
-{
-    async fn receive(&mut self, buffer: &mut [u8]) -> Result<(usize, SocketAddr), Self::Error> {
-        self.socket.receive(buffer).await
-    }
-}
-
-impl<S> ErrorType for UdpSocketWrapper<'_, S>
-where
-    S: UdpReceive060 + UdpSend060,
-{
-    type Error = UdpError;
-}
-
-#[embassy_executor::task]
-async fn run_dhcp(stack: Stack<'static>, gw_ip_addr: &'static str) {
-    use core::net::{Ipv4Addr, SocketAddrV4};
-
-    use edge_dhcp::{
-        io::{self, DEFAULT_SERVER_PORT},
-        server::{Server, ServerOptions},
-    };
-    use edge_nal_060::UdpBind;
-    use edge_nal_embassy::{Udp, UdpBuffers};
-
-    let ip = Ipv4Addr::from_str(gw_ip_addr).expect("dhcp task failed to parse gw ip");
-
-    let mut buf = [0u8; 1500];
-
-    let mut gw_buf = [Ipv4Addr::UNSPECIFIED];
-
-    let buffers = UdpBuffers::<3, 1024, 1024, 10>::new();
-    let unbound_socket = Udp::new(stack, &buffers);
-    let mut bound_socket = unbound_socket
-        .bind(core::net::SocketAddr::V4(SocketAddrV4::new(
-            Ipv4Addr::UNSPECIFIED,
-            DEFAULT_SERVER_PORT,
-        )))
-        .await
-        .unwrap();
-
-    let mut wrapped_bound_socket = UdpSocketWrapper {
-        socket: &mut bound_socket,
-    };
-    loop {
-        _ = io::server::run(
-            &mut Server::<_, 64>::new_with_et(ip),
-            &ServerOptions::new(ip, Some(&mut gw_buf)),
-            &mut wrapped_bound_socket,
-            &mut buf,
-        )
-        .await
-        .inspect_err(|e| println!("DHCP server error: {e:?}"));
-        Timer::after(Duration::from_millis(500)).await;
-    }
 }
 
 #[embassy_executor::task]

@@ -445,13 +445,8 @@
 
       function getQueryString(coords) {
         const params = new URLSearchParams({
-          r: coords.r.toFixed(3),
-          angle: coords.angle.toFixed(1),
-          theta: coords.theta.toFixed(3),
-          radius: coords.r.toFixed(3),
-          deg: coords.angle.toFixed(1),
-          x: coords.x.toFixed(3),
-          y: coords.y.toFixed(3)
+          left: coords.left,
+          right: coords.right
         });
         return params.toString();
       }
@@ -481,7 +476,7 @@
       }
 
       async function sendStop() {
-        const stopCoords = { r: 0, angle: 0, theta: 0, x: 0, y: 0 };
+        const stopCoords = { left: 0, right: 0 };
         const queryString = getQueryString(stopCoords);
         try {
           await fetch(`/move?${queryString}`, {
