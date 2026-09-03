@@ -1,10 +1,8 @@
-//! Access point
+//! Embassy access point
 //!
-//! Creates an open access-point with SSID `esp-radio`.
-//! You can connect to it using a static IP in range 192.168.2.2 ..
-//! 192.168.2.255, gateway 192.168.2.1
-//!
-//! Open http://192.168.2.1:8080/ in your browser
+//! - creates an open access-point with SSID `esp-radio`
+//! - DHCP is enabled so there's no need to configure a static IP
+//! - connect to the AP `esp-radio` and open http://1.1.1.1:8080/ in your browser
 //!
 //! On Android you might need to choose _Keep Accesspoint_ when it tells you the
 //! WiFi has no internet connection, Chrome might not want to load the URL - you
@@ -13,30 +11,42 @@
 #![no_std]
 #![no_main]
 
-use blocking_network_stack::Stack;
-use embedded_io::*;
+use core::{net::Ipv4Addr, str::FromStr};
+
+use edge_nal_embassy::UdpError;
+use embassy_executor::Spawner;
+use embassy_net::{
+    IpListenEndpoint, Ipv4Cidr, Runner, Stack, StackResources, StaticConfigV4, tcp::TcpSocket,
+};
+use embassy_time::{Duration, Timer};
+use embedded_io::ErrorType;
 use esp_alloc as _;
 use esp_backtrace as _;
 #[cfg(target_arch = "riscv32")]
 use esp_hal::interrupt::software::SoftwareInterruptControl;
-use esp_hal::{
-    clock::CpuClock,
-    main, ram,
-    rng::Rng,
-    time::{self, Duration},
-    timer::timg::TimerGroup,
-};
+use esp_hal::{clock::CpuClock, ram, rng::Rng, timer::timg::TimerGroup};
 use esp_println::{print, println};
-use esp_radio::wifi::{
-    event::{self, EventExt},
-    AccessPointConfig, ModeConfig,
+use esp_radio::{
+    Controller,
+    wifi::{AccessPointConfig, ModeConfig, WifiApState, WifiController, WifiDevice, WifiEvent},
 };
-use smoltcp::iface::{SocketSet, SocketStorage};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
-#[main]
-fn main() -> ! {
+// When you are okay with using a nightly compiler it's better to use https://docs.rs/static_cell/2.1.0/static_cell/macro.make_static.html
+macro_rules! mk_static {
+    ($t:ty,$val:expr) => {{
+        static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
+        #[deny(unused_attributes)]
+        let x = STATIC_CELL.uninit().write(($val));
+        x
+    }};
+}
+
+const GW_IP_ADDR_ENV: Option<&'static str> = option_env!("GATEWAY_IP");
+
+#[esp_rtos::main]
+async fn main(spawner: Spawner) -> ! {
     esp_println::logger::init_logger_from_env();
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
     let peripherals = esp_hal::init(config);
@@ -53,164 +63,238 @@ fn main() -> ! {
         sw_int.software_interrupt0,
     );
 
-    // Set event handlers for wifi before init to avoid missing any.
-    let mut connections = 0u32;
-    _ = event::ApStart::replace_handler(|_| println!("ap start event"));
-    event::ApStaConnected::update_handler(move |event| {
-        connections += 1;
-        esp_println::println!("connected {}, mac: {:?}", connections, event.mac());
-    });
-    event::ApStaConnected::update_handler(|event| {
-        esp_println::println!("connected aid: {}", event.aid());
-    });
-    event::ApStaDisconnected::update_handler(|event| {
-        println!(
-            "disconnected mac: {:?}, reason: {:?}",
-            event.mac(),
-            event.reason()
-        );
-    });
+    let esp_radio_ctrl = &*mk_static!(Controller<'static>, esp_radio::init().unwrap());
 
-    let esp_radio_ctrl = esp_radio::init().unwrap();
-
-    let (mut controller, interfaces) =
+    let (controller, interfaces) =
         esp_radio::wifi::new(&esp_radio_ctrl, peripherals.WIFI, Default::default()).unwrap();
 
-    let mut device = interfaces.ap;
-    let iface = create_interface(&mut device);
+    let device = interfaces.ap;
 
-    let now = || time::Instant::now().duration_since_epoch().as_millis();
+    let gw_ip_addr_str = GW_IP_ADDR_ENV.unwrap_or("192.168.2.1");
+    let gw_ip_addr = Ipv4Addr::from_str(gw_ip_addr_str).expect("failed to parse gateway ip");
+
+    let config = embassy_net::Config::ipv4_static(StaticConfigV4 {
+        address: Ipv4Cidr::new(gw_ip_addr, 24),
+        gateway: Some(gw_ip_addr),
+        dns_servers: Default::default(),
+    });
 
     let rng = Rng::new();
-    let mut socket_set_entries: [SocketStorage; 3] = Default::default();
-    let socket_set = SocketSet::new(&mut socket_set_entries[..]);
-    let mut stack = Stack::new(iface, device, socket_set, now, rng.random());
+    let seed = (rng.random() as u64) << 32 | rng.random() as u64;
 
-    let ap_config =
-        ModeConfig::AccessPoint(AccessPointConfig::default().with_ssid("esp-radio".into()));
-    let res = controller.set_config(&ap_config);
-    println!("wifi_set_configuration returned {:?}", res);
-
-    controller.start().unwrap();
-    println!("is wifi started: {:?}", controller.is_started());
-
-    println!("{:?}", controller.capabilities());
-
-    stack
-        .set_iface_configuration(&blocking_network_stack::ipv4::Configuration::Client(
-            blocking_network_stack::ipv4::ClientConfiguration::Fixed(
-                blocking_network_stack::ipv4::ClientSettings {
-                    ip: blocking_network_stack::ipv4::Ipv4Addr::from(parse_ip("192.168.2.1")),
-                    subnet: blocking_network_stack::ipv4::Subnet {
-                        gateway: blocking_network_stack::ipv4::Ipv4Addr::from(parse_ip(
-                            "192.168.2.1",
-                        )),
-                        mask: blocking_network_stack::ipv4::Mask(24),
-                    },
-                    dns: None,
-                    secondary_dns: None,
-                },
-            ),
-        ))
-        .unwrap();
-
-    println!(
-        "Start busy loop on main. Connect to the AP `esp-radio` and point your browser to http://192.168.2.1:8080/"
+    // Init network stack
+    let (stack, runner) = embassy_net::new(
+        device,
+        config,
+        mk_static!(StackResources<3>, StackResources::<3>::new()),
+        seed,
     );
-    println!("Use a static IP in the range 192.168.2.2 .. 192.168.2.255, use gateway 192.168.2.1");
 
-    let mut rx_buffer = [0u8; 1536];
-    let mut tx_buffer = [0u8; 1536];
-    let mut socket = stack.get_socket(&mut rx_buffer, &mut tx_buffer);
+    spawner.spawn(connection(controller)).ok();
+    spawner.spawn(net_task(runner)).ok();
+    spawner.spawn(run_dhcp(stack, gw_ip_addr_str)).ok();
 
-    socket.listen(8080).unwrap();
+    let mut rx_buffer = [0; 1536];
+    let mut tx_buffer = [0; 1536];
 
     loop {
-        socket.work();
+        if stack.is_link_up() {
+            break;
+        }
+        Timer::after(Duration::from_millis(500)).await;
+    }
+    println!(
+        "Connect to the AP `esp-radio` and point your browser to http://{gw_ip_addr_str}:8080/"
+    );
+    println!("DHCP is enabled so there's no need to configure a static IP, just in case:");
+    while !stack.is_config_up() {
+        Timer::after(Duration::from_millis(100)).await
+    }
+    stack
+        .config_v4()
+        .inspect(|c| println!("ipv4 config: {c:?}"));
 
-        if !socket.is_open() {
-            socket.listen(8080).unwrap();
+    let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
+    socket.set_timeout(Some(embassy_time::Duration::from_secs(10)));
+    loop {
+        println!("Wait for connection...");
+        let r = socket
+            .accept(IpListenEndpoint {
+                addr: None,
+                port: 8080,
+            })
+            .await;
+        println!("Connected...");
+
+        if let Err(e) = r {
+            println!("connect error: {:?}", e);
+            continue;
         }
 
-        if socket.is_connected() {
-            println!("Connected");
+        use embedded_io_async::Write;
 
-            let mut time_out = false;
-            let deadline = time::Instant::now() + Duration::from_secs(20);
-            let mut buffer = [0u8; 1024];
-            let mut pos = 0;
-            while let Ok(len) = socket.read(&mut buffer[pos..]) {
-                let to_print = unsafe { core::str::from_utf8_unchecked(&buffer[..(pos + len)]) };
-
-                if to_print.contains("\r\n\r\n") {
-                    print!("{}", to_print);
-                    println!();
+        let mut buffer = [0u8; 1024];
+        let mut pos = 0;
+        loop {
+            match socket.read(&mut buffer).await {
+                Ok(0) => {
+                    println!("read EOF");
                     break;
                 }
+                Ok(len) => {
+                    let to_print =
+                        unsafe { core::str::from_utf8_unchecked(&buffer[..(pos + len)]) };
 
-                pos += len;
+                    if to_print.contains("\r\n\r\n") {
+                        print!("{}", to_print);
+                        println!();
+                        break;
+                    }
 
-                if time::Instant::now() > deadline {
-                    println!("Timeout");
-                    time_out = true;
+                    pos += len;
+                }
+                Err(e) => {
+                    println!("read error: {:?}", e);
                     break;
                 }
-            }
-
-            if !time_out {
-                socket
-                    .write_all(
-                        b"HTTP/1.0 200 OK\r\n\r\n\
-                    <html>\
-                        <body>\
-                            <h1>Hello Rust! Hello esp-radio!</h1>\
-                        </body>\
-                    </html>\r\n\
-                    ",
-                    )
-                    .unwrap();
-
-                socket.flush().unwrap();
-            }
-
-            socket.close();
-
-            println!("Done\n");
-            println!();
+            };
         }
 
-        let start = time::Instant::now();
-        while start.elapsed() < Duration::from_secs(5) {
-            socket.work();
+        let r = socket
+            .write_all(
+                b"HTTP/1.0 200 OK\r\n\r\n\
+            <html>\
+                <body>\
+                    <h1>Hello Rust! Hello esp-radio!</h1>\
+                </body>\
+            </html>\r\n\
+            ",
+            )
+            .await;
+        if let Err(e) = r {
+            println!("write error: {:?}", e);
+        }
+
+        let r = socket.flush().await;
+        if let Err(e) = r {
+            println!("flush error: {:?}", e);
+        }
+        Timer::after(Duration::from_millis(1000)).await;
+
+        socket.close();
+        Timer::after(Duration::from_millis(1000)).await;
+
+        socket.abort();
+    }
+}
+
+use core::net::SocketAddr;
+use edge_nal_060::{UdpReceive as UdpReceive060, UdpSend as UdpSend060};
+
+struct UdpSocketWrapper<'a, S>
+where
+    S: UdpSend060 + UdpReceive060,
+{
+    socket: &'a mut S,
+}
+
+impl<S> edge_nal::UdpSend for UdpSocketWrapper<'_, S>
+where
+    S: UdpSend060 + UdpReceive060 + ErrorType<Error = UdpError>,
+{
+    async fn send(
+        &mut self,
+        remote: core::net::SocketAddr,
+        data: &[u8],
+    ) -> Result<(), Self::Error> {
+        self.socket.send(remote, data).await
+    }
+}
+
+impl<S> edge_nal::UdpReceive for UdpSocketWrapper<'_, S>
+where
+    S: UdpReceive060 + UdpSend060 + ErrorType<Error = UdpError>,
+{
+    async fn receive(&mut self, buffer: &mut [u8]) -> Result<(usize, SocketAddr), Self::Error> {
+        self.socket.receive(buffer).await
+    }
+}
+
+impl<S> ErrorType for UdpSocketWrapper<'_, S>
+where
+    S: UdpReceive060 + UdpSend060,
+{
+    type Error = UdpError;
+}
+
+#[embassy_executor::task]
+async fn run_dhcp(stack: Stack<'static>, gw_ip_addr: &'static str) {
+    use core::net::{Ipv4Addr, SocketAddrV4};
+
+    use edge_dhcp::{
+        io::{self, DEFAULT_SERVER_PORT},
+        server::{Server, ServerOptions},
+    };
+    use edge_nal_060::UdpBind;
+    use edge_nal_embassy::{Udp, UdpBuffers};
+
+    let ip = Ipv4Addr::from_str(gw_ip_addr).expect("dhcp task failed to parse gw ip");
+
+    let mut buf = [0u8; 1500];
+
+    let mut gw_buf = [Ipv4Addr::UNSPECIFIED];
+
+    let buffers = UdpBuffers::<3, 1024, 1024, 10>::new();
+    let unbound_socket = Udp::new(stack, &buffers);
+    let mut bound_socket = unbound_socket
+        .bind(core::net::SocketAddr::V4(SocketAddrV4::new(
+            Ipv4Addr::UNSPECIFIED,
+            DEFAULT_SERVER_PORT,
+        )))
+        .await
+        .unwrap();
+
+    let mut wrapped_bound_socket = UdpSocketWrapper {
+        socket: &mut bound_socket,
+    };
+    loop {
+        _ = io::server::run(
+            &mut Server::<_, 64>::new_with_et(ip),
+            &ServerOptions::new(ip, Some(&mut gw_buf)),
+            &mut wrapped_bound_socket,
+            &mut buf,
+        )
+        .await
+        .inspect_err(|e| println!("DHCP server error: {e:?}"));
+        Timer::after(Duration::from_millis(500)).await;
+    }
+}
+
+#[embassy_executor::task]
+async fn connection(mut controller: WifiController<'static>) {
+    println!("start connection task");
+    println!("Device capabilities: {:?}", controller.capabilities());
+    loop {
+        match esp_radio::wifi::ap_state() {
+            WifiApState::Started => {
+                // wait until we're no longer connected
+                controller.wait_for_event(WifiEvent::ApStop).await;
+                Timer::after(Duration::from_millis(5000)).await
+            }
+            _ => {}
+        }
+        if !matches!(controller.is_started(), Ok(true)) {
+            let client_config =
+                ModeConfig::AccessPoint(AccessPointConfig::default().with_ssid("esp-radio".into()));
+            controller.set_config(&client_config).unwrap();
+            println!("Starting wifi");
+            controller.start_async().await.unwrap();
+            println!("Wifi started!");
         }
     }
 }
 
-fn parse_ip(ip: &str) -> [u8; 4] {
-    let mut result = [0u8; 4];
-    for (idx, octet) in ip.split(".").into_iter().enumerate() {
-        result[idx] = u8::from_str_radix(octet, 10).unwrap();
-    }
-    result
-}
-
-// some smoltcp boilerplate
-fn timestamp() -> smoltcp::time::Instant {
-    smoltcp::time::Instant::from_micros(
-        esp_hal::time::Instant::now()
-            .duration_since_epoch()
-            .as_micros() as i64,
-    )
-}
-
-pub fn create_interface(device: &mut esp_radio::wifi::WifiDevice) -> smoltcp::iface::Interface {
-    // users could create multiple instances but since they only have one WifiDevice
-    // they probably can't do anything bad with that
-    smoltcp::iface::Interface::new(
-        smoltcp::iface::Config::new(smoltcp::wire::HardwareAddress::Ethernet(
-            smoltcp::wire::EthernetAddress::from_bytes(&device.mac_address()),
-        )),
-        device,
-        timestamp(),
-    )
+#[embassy_executor::task]
+async fn net_task(mut runner: Runner<'static, WifiDevice<'static>>) {
+    runner.run().await
 }

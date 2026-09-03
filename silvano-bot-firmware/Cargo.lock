@@ -309,7 +309,7 @@ checksum = "7f66d0fa7b3b11c25646fae5dc15f3f3830c6127c39743cf2d54ba96110a5330"
 dependencies = [
  "edge-nal 0.6.0",
  "embassy-futures",
- "embassy-net 0.8.0",
+ "embassy-net",
  "embedded-io-async 0.7.0",
  "heapless 0.9.3",
 ]
@@ -384,23 +384,6 @@ dependencies = [
 
 [[package]]
 name = "embassy-net"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0558a231a47e7d4a06a28b5278c92e860f1200f24821d2f365a2f40fe3f3c7b2"
-dependencies = [
- "document-features",
- "embassy-net-driver",
- "embassy-sync 0.7.2",
- "embassy-time",
- "embedded-io-async 0.6.1",
- "embedded-nal-async 0.8.0",
- "heapless 0.8.0",
- "managed",
- "smoltcp",
-]
-
-[[package]]
-name = "embassy-net"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "71f0aa32082b7df00164f485322d6edab59122c9718b363b07ec23424c2c06a0"
@@ -410,7 +393,7 @@ dependencies = [
  "embassy-sync 0.7.2",
  "embassy-time",
  "embedded-io-async 0.7.0",
- "embedded-nal-async 0.9.0",
+ "embedded-nal-async",
  "heapless 0.8.0",
  "managed",
  "smoltcp",
@@ -593,16 +576,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c56a28be191a992f28f178ec338a0bf02f63d7803244add736d026a471e6ed77"
 dependencies = [
  "nb 1.1.0",
-]
-
-[[package]]
-name = "embedded-nal-async"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76959917cd2b86f40a98c28dd5624eddd1fa69d746241c8257eac428d83cb211"
-dependencies = [
- "embedded-io-async 0.6.1",
- "embedded-nal",
 ]
 
 [[package]]
@@ -1583,10 +1556,11 @@ dependencies = [
  "blocking-network-stack",
  "critical-section",
  "edge-dhcp",
+ "edge-nal 0.6.0",
  "edge-nal 0.7.0",
  "edge-nal-embassy",
  "embassy-executor",
- "embassy-net 0.7.1",
+ "embassy-net",
  "embassy-time",
  "embedded-io 0.7.1",
  "embedded-io-async 0.7.0",

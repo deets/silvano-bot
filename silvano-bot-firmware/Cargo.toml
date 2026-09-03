@@ -21,7 +21,7 @@ esp-rtos = { version = "0.2.0", features = [
 
 esp-bootloader-esp-idf = { version = "0.4.0", features = ["esp32s2"] }
 
-embassy-net = { version = "0.7.1", features = [
+embassy-net = { version = "0.8.0", features = [
   "dhcpv4",
   "medium-ethernet",
   "tcp",
@@ -59,6 +59,7 @@ esp-backtrace = { version = "0.19.0", features = ["esp32s2", "println", "panic-h
 esp-println = { version = "0.17.0", features = ["esp32s2", "auto", "log-04"] }
 edge-dhcp = "0.8.0"
 edge-nal = "0.7.0"
+edge-nal_060 = { version = "0.6.0", package = "edge-nal" }
 edge-nal-embassy = "0.8.1"
 
 
