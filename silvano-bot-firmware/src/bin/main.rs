@@ -10,9 +10,9 @@
 
 #![no_std]
 #![no_main]
+#![feature(int_format_into)]
 
-use core::{net::Ipv4Addr, str::FromStr};
-
+use core::{fmt::NumBuffer, net::Ipv4Addr, str::FromStr};
 use edge_nal_embassy::UdpError;
 use embassy_executor::Spawner;
 use embassy_net::{
@@ -20,6 +20,7 @@ use embassy_net::{
 };
 use embassy_time::{Duration, Timer};
 use embedded_io::ErrorType;
+use embedded_io_async::Write;
 use esp_alloc as _;
 use esp_backtrace as _;
 #[cfg(target_arch = "riscv32")]
@@ -43,6 +44,8 @@ macro_rules! mk_static {
     }};
 }
 
+const BLOCK_SIZE: usize = 1024;
+const INDEX_HTML: &[u8] = include_bytes!("../../assets/index.html");
 const GW_IP_ADDR_ENV: Option<&'static str> = option_env!("GATEWAY_IP");
 
 #[esp_rtos::main]
@@ -130,9 +133,6 @@ async fn main(spawner: Spawner) -> ! {
             println!("connect error: {:?}", e);
             continue;
         }
-
-        use embedded_io_async::Write;
-
         let mut buffer = [0u8; 1024];
         let mut pos = 0;
         loop {
@@ -146,8 +146,7 @@ async fn main(spawner: Spawner) -> ! {
                         unsafe { core::str::from_utf8_unchecked(&buffer[..(pos + len)]) };
 
                     if to_print.contains("\r\n\r\n") {
-                        print!("{}", to_print);
-                        println!();
+                        dispatch(to_print, &mut socket).await;
                         break;
                     }
 
@@ -159,33 +158,47 @@ async fn main(spawner: Spawner) -> ! {
                 }
             };
         }
-
-        let r = socket
-            .write_all(
-                b"HTTP/1.0 200 OK\r\n\r\n\
-            <html>\
-                <body>\
-                    <h1>Hello Rust! Hello esp-radio!</h1>\
-                </body>\
-            </html>\r\n\
-            ",
-            )
-            .await;
-        if let Err(e) = r {
-            println!("write error: {:?}", e);
-        }
-
-        let r = socket.flush().await;
-        if let Err(e) = r {
-            println!("flush error: {:?}", e);
-        }
-        Timer::after(Duration::from_millis(1000)).await;
-
         socket.close();
         Timer::after(Duration::from_millis(1000)).await;
 
         socket.abort();
     }
+}
+
+async fn dispatch(request: &str, socket: &mut TcpSocket<'_>) {
+    print!("{}", request);
+    println!();
+    if let Err(e) = {
+        if request.starts_with("GET / ") {
+            send_http_response(socket, INDEX_HTML).await
+        } else {
+            println!("Unknown request");
+            send_http_response(socket, b"<html><body>Unknown request</body></html>").await
+        }
+    } {
+        println!("write error: {:?}", e);
+    }
+}
+
+async fn send_http_response(
+    socket: &mut TcpSocket<'_>,
+    payload: &[u8],
+) -> Result<(), embassy_net::tcp::Error> {
+    socket
+        .write_all(b"HTTP/1.0 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: ")
+        .await?;
+    let mut buf = NumBuffer::new();
+    let output = payload.len().format_into(&mut buf);
+    socket.write_all(output.as_bytes()).await?;
+    socket.write_all(b"\r\n\r\n").await?;
+    let mut written = 0;
+    while written < payload.len() {
+        let until = core::cmp::min(written + BLOCK_SIZE, payload.len());
+        socket.write_all(&payload[written..until]).await?;
+        written += 1024;
+        socket.flush().await?;
+    }
+    Ok(())
 }
 
 use core::net::SocketAddr;
