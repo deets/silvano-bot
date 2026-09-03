@@ -218,7 +218,7 @@
 
     .metric-label {
       color: #64748b;
-      margin-right: 4px;
+      margin-right: 8px;
     }
 
     .metric-val {
@@ -263,7 +263,8 @@
     <div class="telemetry-row">
       <div><span class="metric-label">Radius:</span><span class="metric-val" id="val-r">0.000</span></div>
       <div><span class="metric-label">Angle:</span><span class="metric-val" id="val-angle">0.0°</span></div>
-      <div><span class="metric-label">Theta:</span><span class="metric-val" id="val-theta">0.000 rad</span></div>
+      <div><span class="metric-label">Left:</span><span class="metric-val" id="val-left">0.0</span></div>
+      <div><span class="metric-label">Right:</span><span class="metric-val" id="val-right">0.0</span></div>
     </div>
     <div class="url-preview" id="url-preview">/move?r=0.000&amp;angle=0.0&amp;theta=0.000</div>
   </footer>
@@ -277,8 +278,9 @@
       const statusText = document.getElementById('status-text');
       const valR = document.getElementById('val-r');
       const valAngle = document.getElementById('val-angle');
-      const valTheta = document.getElementById('val-theta');
       const urlPreview = document.getElementById('url-preview');
+      const valLeft = document.getElementById('val-left');
+      const valRight = document.getElementById('val-right');
 
       let isPressed = false;
       let activePointerId = null;
@@ -291,7 +293,9 @@
         angle: 0,    // degrees [0.0, 360.0)
         theta: 0,    // radians [-PI, PI]
         x: 0,        // normalized cartesian x [-1.000, 1.000]
-        y: 0         // normalized cartesian y [-1.000, 1.000] (+y forward/up)
+        y: 0,        // normalized cartesian y [-1.000, 1.000] (+y forward/up)
+        left: 0,     // normalized motor speed left
+        right: 0     // normalized motor speed right
       };
 
       // Responsive sizing: ensure circle spans exactly 90% of width or height, whatever fits best
@@ -324,6 +328,57 @@
       }
       updateCircleSize();
 
+      function updateMotorSpeeds() {
+        // This is a bit shit as it takes
+        // global state instead of arguments.
+
+        // The control scheme is simple:
+        //
+        // Each quadrant has a dominant wheel that defines
+        // the max speed we're running. The speed is
+        // the relative radius, and the direction
+        // is positive for the two upper quadrants,
+        // and negative for the two lower quadrants.
+        //
+        // Then the dependent wheels speed is determined
+        // by multiplying the dominant speed with the
+        // cosine of abs(2*theta).
+        // This results in the speed reducing to zero
+        // within the first +/-45 degrees, and then creeping up to
+        // -dominant when at +/-90 degrees. Thus when we
+        // move the cursor on the horizontal line, we rotate either
+        // left or right.
+
+        const dominant = current.r;
+        const dependent = Math.cos(Math.abs(current.theta) * 2) * dominant;
+        
+        if(Math.abs(current.theta) <= Math.PI / 2.0)
+        {
+          // Upper half, left quadrant
+          if(current.theta < 0) {
+            current.right = dominant;
+            current.left = dependent;          
+          }
+          else
+          {
+             current.left = dominant;
+             current.right = dependent;
+          }
+        }
+        else
+        {
+          // Lower half
+          if(current.theta < 0) {
+            current.left = -dominant;
+            current.right = -dependent;          
+          }
+          else
+          {
+            current.right = -dominant;          
+            current.left = -dependent;
+          }          
+        }
+      }
       function updateCoordinates(clientX, clientY) {
         const rect = circle.getBoundingClientRect();
         const centerX = rect.left + rect.width / 2;
@@ -350,6 +405,8 @@
         // Angle in degrees [0, 360)
         let deg = current.theta * (180 / Math.PI);
         current.angle = deg;
+
+        updateMotorSpeeds();
 
         // Normalized cartesian [-1.0, 1.0]
         current.x = maxRadius > 0 ? (deltaX * (clampedDist / (dist || 1))) / maxRadius : 0;
@@ -379,8 +436,9 @@
       function renderTelemetry() {
         valR.textContent = current.r.toFixed(3);
         valAngle.textContent = current.angle.toFixed(1) + '°';
-        valTheta.textContent = current.theta.toFixed(3) + ' rad';
-
+        valLeft.textContent = current.left.toFixed(2);
+        valRight.textContent = current.right.toFixed(2);
+        
         const queryString = getQueryString(current);
         urlPreview.textContent = `/move?${queryString}`;
       }
