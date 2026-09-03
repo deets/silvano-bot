@@ -191,6 +191,9 @@ async fn main(spawner: Spawner) -> ! {
 use core::net::SocketAddr;
 use edge_nal_060::{UdpReceive as UdpReceive060, UdpSend as UdpSend060};
 
+/// I couldn't solve the leaky dependency of edge_nal being
+/// used in two versions, so this simple wrapper just relays
+/// the calls.
 struct UdpSocketWrapper<'a, S>
 where
     S: UdpSend060 + UdpReceive060,

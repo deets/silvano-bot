@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0f172a">
+  <title>Silvano Bot</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      height: 100dvh;
+      overflow: hidden;
+      background-color: #0b0f19;
+      color: #f1f5f9;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      padding-top: max(12px, env(safe-area-inset-top));
+      padding-bottom: max(12px, env(safe-area-inset-bottom));
+      padding-left: max(12px, env(safe-area-inset-left));
+      padding-right: max(12px, env(safe-area-inset-right));
+    }
+
+    header {
+      width: 100%;
+      text-align: center;
+      padding: 8px 0;
+      flex-shrink: 0;
+    }
+
+    h1 {
+      font-size: clamp(1.4rem, 4vw, 2rem);
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: #e2e8f0;
+      text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #94a3b8;
+      background: rgba(30, 41, 59, 0.7);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 9999px;
+      padding: 3px 10px;
+      margin-top: 4px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: #64748b;
+      transition: background-color 0.2s, box-shadow 0.2s;
+    }
+
+    .status-dot.active {
+      background-color: #22c55e;
+      box-shadow: 0 0 10px #22c55e;
+    }
+
+    main {
+      flex: 1;
+      width: 100%;
+      min-height: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+
+    /* Circle sizing: 90% of the width or height of available space, whatever fits best */
+    .joystick-circle {
+      position: relative;
+      /* CSS fallback: 90% of available viewport space */
+      width: min(90vw, calc((100dvh - 160px) * 0.9));
+      height: min(90vw, calc((100dvh - 160px) * 0.9));
+      max-width: 90vmin;
+      max-height: 90vmin;
+      aspect-ratio: 1 / 1;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, #3b82f6 0%, #2563eb 45%, #1d4ed8 75%, #1e3a8a 100%);
+      box-shadow:
+        0 10px 35px rgba(0, 0, 0, 0.6),
+        0 0 30px rgba(37, 99, 235, 0.45),
+        inset 0 2px 6px rgba(255, 255, 255, 0.4),
+        inset 0 -4px 12px rgba(0, 0, 0, 0.45);
+      border: 3px solid rgba(147, 197, 253, 0.85);
+      cursor: pointer;
+      touch-action: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    /* Range guide rings */
+    .guide-ring {
+      position: absolute;
+      border-radius: 50%;
+      border: 1px dashed rgba(255, 255, 255, 0.25);
+      pointer-events: none;
+    }
+
+    .guide-ring-75 {
+      width: 75%;
+      height: 75%;
+    }
+
+    .guide-ring-50 {
+      width: 50%;
+      height: 50%;
+    }
+
+    .guide-ring-25 {
+      width: 25%;
+      height: 25%;
+    }
+
+    /* Crosshairs */
+    .crosshair-h, .crosshair-v {
+      position: absolute;
+      background: rgba(255, 255, 255, 0.2);
+      pointer-events: none;
+    }
+
+    .crosshair-h {
+      width: 100%;
+      height: 1px;
+      left: 0;
+      top: 50%;
+    }
+
+    .crosshair-v {
+      height: 100%;
+      width: 1px;
+      top: 0;
+      left: 50%;
+    }
+
+    /* Center deadzone mark */
+    .center-dot {
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.5);
+      box-shadow: 0 0 6px rgba(255, 255, 255, 0.6);
+      pointer-events: none;
+    }
+
+    /* Interactive thumb knob */
+    .knob {
+      position: absolute;
+      width: clamp(40px, 12%, 64px);
+      height: clamp(40px, 12%, 64px);
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, #ffffff 0%, #e2e8f0 60%, #94a3b8 100%);
+      box-shadow:
+        0 4px 15px rgba(0, 0, 0, 0.6),
+        0 0 15px rgba(255, 255, 255, 0.7);
+      border: 2px solid #ffffff;
+      pointer-events: none;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      will-change: transform;
+      z-index: 10;
+    }
+
+    /* Telemetry HUD at the bottom */
+    footer {
+      width: 100%;
+      max-width: 500px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 8px 14px;
+      flex-shrink: 0;
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border-radius: 12px;
+      border: 1px solid rgba(51, 65, 85, 0.5);
+    }
+
+    .telemetry-row {
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.85rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .metric-label {
+      color: #64748b;
+      margin-right: 4px;
+    }
+
+    .metric-val {
+      color: #38bdf8;
+      font-weight: 600;
+    }
+
+    .url-preview {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.7rem;
+      color: #64748b;
+      text-align: center;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-variant-numeric: tabular-nums;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Silvano Bot</h1>
+    <div class="status-badge">
+      <span class="status-dot" id="status-dot"></span>
+      <span id="status-text">Standby</span>
+    </div>
+  </header>
+
+  <main id="main-container">
+    <div class="joystick-circle" id="circle">
+      <div class="crosshair-h"></div>
+      <div class="crosshair-v"></div>
+      <div class="guide-ring guide-ring-75"></div>
+      <div class="guide-ring guide-ring-50"></div>
+      <div class="guide-ring guide-ring-25"></div>
+      <div class="center-dot"></div>
+      <div class="knob" id="knob"></div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="telemetry-row">
+      <div><span class="metric-label">Radius:</span><span class="metric-val" id="val-r">0.000</span></div>
+      <div><span class="metric-label">Angle:</span><span class="metric-val" id="val-angle">0.0°</span></div>
+      <div><span class="metric-label">Theta:</span><span class="metric-val" id="val-theta">0.000 rad</span></div>
+    </div>
+    <div class="url-preview" id="url-preview">/move?r=0.000&amp;angle=0.0&amp;theta=0.000</div>
+  </footer>
+
+  <script>
+    (function () {
+      const mainContainer = document.getElementById('main-container');
+      const circle = document.getElementById('circle');
+      const knob = document.getElementById('knob');
+      const statusDot = document.getElementById('status-dot');
+      const statusText = document.getElementById('status-text');
+      const valR = document.getElementById('val-r');
+      const valAngle = document.getElementById('val-angle');
+      const valTheta = document.getElementById('val-theta');
+      const urlPreview = document.getElementById('url-preview');
+
+      let isPressed = false;
+      let activePointerId = null;
+      let intervalTimer = null;
+      let inFlight = false;
+
+      // Current control values
+      const current = {
+        r: 0,        // normalized radius [0.000, 1.000]
+        angle: 0,    // degrees [0.0, 360.0)
+        theta: 0,    // radians [-PI, PI]
+        x: 0,        // normalized cartesian x [-1.000, 1.000]
+        y: 0         // normalized cartesian y [-1.000, 1.000] (+y forward/up)
+      };
+
+      // Responsive sizing: ensure circle spans exactly 90% of width or height, whatever fits best
+      function updateCircleSize() {
+        if (!mainContainer || !circle) return;
+        const availableW = mainContainer.clientWidth;
+        const availableH = mainContainer.clientHeight;
+        if (availableW > 0 && availableH > 0) {
+          const size = Math.floor(Math.min(availableW, availableH) * 0.90);
+          circle.style.width = size + 'px';
+          circle.style.height = size + 'px';
+        }
+      }
+
+      if (window.ResizeObserver) {
+        const ro = new ResizeObserver(() => {
+          updateCircleSize();
+          if (!isPressed) {
+            resetToCenter();
+          }
+        });
+        ro.observe(mainContainer);
+      } else {
+        window.addEventListener('resize', () => {
+          updateCircleSize();
+          if (!isPressed) {
+            resetToCenter();
+          }
+        });
+      }
+      updateCircleSize();
+
+      function updateCoordinates(clientX, clientY) {
+        const rect = circle.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const maxRadius = rect.width / 2;
+
+        const deltaX = clientX - centerX;
+        const deltaY = clientY - centerY;
+
+        const dist = Math.hypot(deltaX, deltaY);
+        const clampedDist = Math.min(dist, maxRadius);
+
+        // Normalized radius [0.0, 1.0]
+        current.r = maxRadius > 0 ? clampedDist / maxRadius : 0;
+
+        // In screen coordinates, Y points downwards.
+        // For Cartesian coordinates where forward/up is positive:
+        const cartesianY = -deltaY;
+        const cartesianX = deltaX;
+
+        // Angle in radians [-PI, PI]
+        current.theta = Math.atan2(cartesianY, cartesianX);
+
+        // Angle in degrees [0, 360)
+        let deg = current.theta * (180 / Math.PI);
+        if (deg < 0) {
+          deg += 360;
+        }
+        current.angle = deg;
+
+        // Normalized cartesian [-1.0, 1.0]
+        current.x = maxRadius > 0 ? (deltaX * (clampedDist / (dist || 1))) / maxRadius : 0;
+        current.y = maxRadius > 0 ? (cartesianY * (clampedDist / (dist || 1))) / maxRadius : 0;
+
+        // Visual position of the knob
+        const scale = dist > 0 ? clampedDist / dist : 0;
+        const knobX = deltaX * scale;
+        const knobY = deltaY * scale;
+
+        knob.style.transform = `translate(calc(-50% + ${knobX}px), calc(-50% + ${knobY}px))`;
+
+        renderTelemetry();
+      }
+
+      function resetToCenter() {
+        current.r = 0;
+        current.angle = 0;
+        current.theta = 0;
+        current.x = 0;
+        current.y = 0;
+
+        knob.style.transform = 'translate(-50%, -50%)';
+        renderTelemetry();
+      }
+
+      function renderTelemetry() {
+        valR.textContent = current.r.toFixed(3);
+        valAngle.textContent = current.angle.toFixed(1) + '°';
+        valTheta.textContent = current.theta.toFixed(3) + ' rad';
+
+        const queryString = getQueryString(current);
+        urlPreview.textContent = `/move?${queryString}`;
+      }
+
+      function getQueryString(coords) {
+        const params = new URLSearchParams({
+          r: coords.r.toFixed(3),
+          angle: coords.angle.toFixed(1),
+          theta: coords.theta.toFixed(3),
+          radius: coords.r.toFixed(3),
+          deg: coords.angle.toFixed(1),
+          x: coords.x.toFixed(3),
+          y: coords.y.toFixed(3)
+        });
+        return params.toString();
+      }
+
+      async function sendMove() {
+        if (inFlight) return; // Prevent TCP socket queue congestion on microcontroller
+        inFlight = true;
+
+        const queryString = getQueryString(current);
+        const url = `/move?${queryString}`;
+
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 200);
+
+          await fetch(url, {
+            method: 'GET',
+            signal: controller.signal,
+            cache: 'no-store'
+          });
+          clearTimeout(timeoutId);
+        } catch (_) {
+          // Microcontroller may be offline or slow; ignore network errors silently
+        } finally {
+          inFlight = false;
+        }
+      }
+
+      async function sendStop() {
+        const stopCoords = { r: 0, angle: 0, theta: 0, x: 0, y: 0 };
+        const queryString = getQueryString(stopCoords);
+        try {
+          await fetch(`/move?${queryString}`, {
+            method: 'GET',
+            cache: 'no-store'
+          });
+        } catch (_) {}
+      }
+
+      function onPointerDown(e) {
+        if (e.button !== undefined && e.button !== 0) return; // Primary mouse button only
+
+        isPressed = true;
+        activePointerId = e.pointerId;
+        circle.setPointerCapture(e.pointerId);
+
+        knob.style.transition = 'none';
+        statusDot.classList.add('active');
+        statusText.textContent = 'Transmitting';
+
+        updateCoordinates(e.clientX, e.clientY);
+        sendMove();
+
+        clearInterval(intervalTimer);
+        intervalTimer = setInterval(sendMove, 100);
+      }
+
+      function onPointerMove(e) {
+        if (!isPressed || e.pointerId !== activePointerId) return;
+        updateCoordinates(e.clientX, e.clientY);
+      }
+
+      function onPointerUp(e) {
+        if (e.pointerId !== activePointerId) return;
+
+        isPressed = false;
+        activePointerId = null;
+
+        clearInterval(intervalTimer);
+        intervalTimer = null;
+
+        try {
+          circle.releasePointerCapture(e.pointerId);
+        } catch (_) {}
+
+        statusDot.classList.remove('active');
+        statusText.textContent = 'Standby';
+
+        // Smoothly spring knob back to center
+        knob.style.transition = 'transform 0.15s cubic-bezier(0.2, 0.8, 0.3, 1)';
+        resetToCenter();
+
+        sendStop();
+      }
+
+      // Pointer event listeners on the circle
+      circle.addEventListener('pointerdown', onPointerDown);
+      circle.addEventListener('pointermove', onPointerMove);
+      circle.addEventListener('pointerup', onPointerUp);
+      circle.addEventListener('pointercancel', onPointerUp);
+      circle.addEventListener('lostpointercapture', onPointerUp);
+
+      // Prevent accidental context menu on touch devices
+      window.addEventListener('contextmenu', function (e) {
+        e.preventDefault();
+      });
+
+      // Recalculate on window resize / orientation change
+      window.addEventListener('resize', function () {
+        if (!isPressed) {
+          resetToCenter();
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
