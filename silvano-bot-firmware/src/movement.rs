@@ -3,7 +3,10 @@ use core::sync::atomic::{AtomicI32, Ordering};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::Receiver;
 use embassy_time::{Duration, Instant, Ticker};
-use esp_hal::{Async, i2c::master::I2c};
+use esp_hal::{
+    Async,
+    i2c::master::{Error, I2c, Operation},
+};
 use esp_println::println;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -66,20 +69,28 @@ pub struct MovementController<'a> {
 // to 1 for writing. Thus the payload/value is always just the next
 // byte directly, for the cost of 16 addresses consumed of 127
 // avaialble.
-const MD23_ADDRESS: u8 = 0xB0 >> 1;
+const MD23_ADDRESS: u8 = 0x58;
 
 static COUNT: AtomicI32 = AtomicI32::new(0);
 
+const MD23_LEFT: u8 = 1;
+const MD23_RIGHT: u8 = 0;
+const MD23_ENC1: u8 = 2;
+const MD23_ENC2: u8 = 6;
+const MD23_MODE: u8 = 15;
+
 impl<'a> MovementController<'a> {
-    pub fn new(
+    pub async fn new(
         bus: I2c<'a, Async>,
         receiver: Receiver<'static, NoopRawMutex, Movement, 4>,
     ) -> Self {
-        Self {
+        let mut this = Self {
             bus,
             last_update: Instant::now(),
             receiver,
-        }
+        };
+        println!("set_mode: {:?}", this.set_register_u8(MD23_MODE, 0).await);
+        this
     }
 
     async fn drive(&mut self) {
@@ -98,15 +109,64 @@ impl<'a> MovementController<'a> {
         let mut count = COUNT.load(Ordering::Relaxed);
         count += 1;
         COUNT.store(count, Ordering::Relaxed);
-        let left = (left * 127.0) as u8;
-        let right = (right * 127.0) as u8;
+        let left = (-left * 127.0 + 128.0) as u8;
+        let right = (-right * 127.0 + 128.0) as u8;
         println!("set_motor: {}, {} {}", count, left, right);
-        if let Err(e) = self.bus.write_async(MD23_ADDRESS, &[left]).await {
-            println!("set_motor:left:error{:?}", e);
-        }
-        if let Err(e) = self.bus.write_async(MD23_ADDRESS + 1, &[right]).await {
-            println!("set_motor:right:error{:?}", e);
-        }
+        println!(
+            "set_motor:left:{:?}",
+            self.set_register_u8(MD23_LEFT, left).await
+        );
+        println!(
+            "set_motor:right:{:?}",
+            self.set_register_u8(MD23_RIGHT, right).await
+        );
+        // println!("encoders: {:?}", self.read_encoders().await);
+        // println!("speeds: {:?}", self.read_speed().await);
+        // println!("mode: {:?}", self.read_mode().await);
+    }
+
+    async fn set_register_u8(&mut self, reg: u8, value: u8) -> Result<(), Error> {
+        self.bus
+            .transaction_async(
+                MD23_ADDRESS,
+                &mut [Operation::Write(&[reg]), Operation::Write(&[value])],
+            )
+            .await
+    }
+
+    async fn read_encoders(&mut self) -> Result<(i32, i32), Error> {
+        let mut encoder_values = [0; 4];
+        let _ = self.bus.write_async(MD23_ADDRESS, &[MD23_ENC1]).await?;
+        let _ = self
+            .bus
+            .read_async(MD23_ADDRESS, &mut encoder_values)
+            .await?;
+        let left = i32::from_be_bytes(encoder_values);
+        let _ = self.bus.write_async(MD23_ADDRESS, &[MD23_ENC2]).await?;
+        let _ = self
+            .bus
+            .read_async(MD23_ADDRESS, &mut encoder_values)
+            .await?;
+        let right = i32::from_be_bytes(encoder_values);
+        Ok((left, right))
+    }
+
+    async fn read_mode(&mut self) -> Result<u8, Error> {
+        self.read_register_u8(MD23_MODE).await
+    }
+
+    async fn read_register_u8(&mut self, reg: u8) -> Result<u8, Error> {
+        let mut value = [0; 1];
+        let _ = self.bus.write_async(MD23_ADDRESS, &[reg]).await;
+        let _ = self.bus.read_async(MD23_ADDRESS, &mut value).await;
+        Ok(value[0])
+    }
+
+    async fn read_speed(&mut self) -> Result<(u8, u8), Error> {
+        Ok((
+            self.read_register_u8(MD23_LEFT).await?,
+            self.read_register_u8(MD23_RIGHT).await?,
+        ))
     }
 }
 

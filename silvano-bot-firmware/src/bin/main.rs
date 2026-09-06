@@ -67,14 +67,15 @@ async fn main(spawner: Spawner) -> ! {
         esp_hal::i2c::master::Config::default().with_frequency(esp_hal::time::Rate::from_khz(400)),
     )
     .unwrap()
-    .with_scl(peripherals.GPIO19)
-    .with_sda(peripherals.GPIO20)
+    .with_scl(peripherals.GPIO14)
+    .with_sda(peripherals.GPIO13)
     .into_async();
     let channel: Channel<NoopRawMutex, Movement, 4> = Channel::new();
     let static_channel = CHANNEL.init(channel);
 
     let movement_controller =
-        silvano_bot_firmware::movement::MovementController::new(i2c_bus, static_channel.receiver());
+        silvano_bot_firmware::movement::MovementController::new(i2c_bus, static_channel.receiver())
+            .await;
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     #[cfg(target_arch = "riscv32")]
     let sw_int = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
