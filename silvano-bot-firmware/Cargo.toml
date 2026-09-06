@@ -62,6 +62,7 @@ edge-nal = "0.7.0"
 edge-nal_060 = { version = "0.6.0", package = "edge-nal" }
 edge-nal-embassy = "0.8.1"
 httparse = { version = "1.10.1", default-features = false }
+embassy-sync = "0.7.2"
 
 
 [profile.dev]

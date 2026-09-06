@@ -17,6 +17,8 @@ use embassy_executor::Spawner;
 use embassy_net::{
     IpListenEndpoint, Ipv4Cidr, Runner, StackResources, StaticConfigV4, tcp::TcpSocket,
 };
+use embassy_sync::channel::Channel;
+use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Sender};
 use embassy_time::{Duration, Timer};
 use embedded_io_async::Write;
 use esp_alloc as _;
@@ -29,7 +31,10 @@ use esp_radio::{
     Controller,
     wifi::{AccessPointConfig, ModeConfig, WifiApState, WifiController, WifiDevice, WifiEvent},
 };
-use silvano_bot_firmware::movement::parse_query_string_for_motor_movement;
+use silvano_bot_firmware::movement::{
+    Movement, movement_task, parse_query_string_for_motor_movement,
+};
+use static_cell::StaticCell;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -46,6 +51,7 @@ macro_rules! mk_static {
 const BLOCK_SIZE: usize = 1024;
 const INDEX_HTML: &[u8] = include_bytes!("../../assets/index.html");
 const GW_IP_ADDR_ENV: Option<&'static str> = option_env!("GATEWAY_IP");
+static CHANNEL: StaticCell<Channel<NoopRawMutex, Movement, 4>> = StaticCell::new();
 
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
@@ -56,6 +62,19 @@ async fn main(spawner: Spawner) -> ! {
     esp_alloc::heap_allocator!(#[ram(reclaimed)] size: 64 * 1024);
     esp_alloc::heap_allocator!(size: 36 * 1024);
 
+    let i2c_bus = esp_hal::i2c::master::I2c::new(
+        peripherals.I2C0,
+        esp_hal::i2c::master::Config::default().with_frequency(esp_hal::time::Rate::from_khz(400)),
+    )
+    .unwrap()
+    .with_scl(peripherals.GPIO19)
+    .with_sda(peripherals.GPIO20)
+    .into_async();
+    let channel: Channel<NoopRawMutex, Movement, 4> = Channel::new();
+    let static_channel = CHANNEL.init(channel);
+
+    let movement_controller =
+        silvano_bot_firmware::movement::MovementController::new(i2c_bus, static_channel.receiver());
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     #[cfg(target_arch = "riscv32")]
     let sw_int = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
@@ -92,6 +111,7 @@ async fn main(spawner: Spawner) -> ! {
         seed,
     );
 
+    spawner.spawn(movement_task(movement_controller)).ok();
     spawner.spawn(connection(controller)).ok();
     spawner.spawn(net_task(runner)).ok();
     spawner
@@ -147,7 +167,7 @@ async fn main(spawner: Spawner) -> ! {
                         unsafe { core::str::from_utf8_unchecked(&buffer[..(pos + len)]) };
 
                     if to_print.contains("\r\n\r\n") {
-                        dispatch(to_print, &mut socket).await;
+                        dispatch(to_print, &mut socket, static_channel.sender()).await;
                         break;
                     }
 
@@ -164,7 +184,11 @@ async fn main(spawner: Spawner) -> ! {
     }
 }
 
-async fn dispatch(request: &str, socket: &mut TcpSocket<'_>) {
+async fn dispatch(
+    request: &str,
+    socket: &mut TcpSocket<'_>,
+    movement_sender: Sender<'static, NoopRawMutex, Movement, 4>,
+) {
     print!("{}", request);
     println!();
     if let Err(e) = {
@@ -175,8 +199,9 @@ async fn dispatch(request: &str, socket: &mut TcpSocket<'_>) {
             let mut req = httparse::Request::new(&mut headers);
             match req.parse(request.as_bytes()) {
                 Ok(_) => {
-                    let movement = parse_query_string_for_motor_movement(req.path);
-                    println!("{:?}", movement);
+                    if let Some(movement) = parse_query_string_for_motor_movement(req.path) {
+                        movement_sender.send(movement).await;
+                    }
                     send_http_response(socket, b"<html><body>Moving</body></html>", 200).await
                 }
                 Err(_) => send_http_response(socket, b"<html><body>Error</body></html>", 500).await,
