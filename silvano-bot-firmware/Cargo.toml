@@ -65,6 +65,9 @@ httparse = { version = "1.10.1", default-features = false }
 embassy-sync = "0.7.2"
 serde = { version = "1.0", default-features = false , features = ["derive", "alloc"]}
 serde-json-core = "0.6.0"
+ssd1306 = { version = "0.10.0", features = ["async"] }
+embedded-graphics = "0.8.2"
+heapless = "0.9.3"
 
 
 [profile.dev]
