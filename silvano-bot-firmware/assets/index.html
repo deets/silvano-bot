@@ -331,7 +331,9 @@
       function easeInExpo(x) {
           return x === 0 ? 0 : Math.pow(2, 10 * x - 10);
       }
-          
+      function easeInCubic(x) {
+          return x * x * x;
+      }          
       function updateMotorSpeeds() {
         // This is a bit shit as it takes
         // global state instead of arguments.
@@ -353,7 +355,7 @@
         // move the cursor on the horizontal line, we rotate either
         // left or right.
 
-        const dominant = easeInExpo(current.r);
+        const dominant = easeInCubic(current.r);
         const dependent = Math.cos(Math.abs(current.theta) * 2) * dominant;
         
         if(Math.abs(current.theta) <= Math.PI / 2.0)

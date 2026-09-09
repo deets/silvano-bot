@@ -207,7 +207,6 @@ async fn dispatch(
                 Err(_) => send_http_response(socket, Response::Error, 500).await,
             }
         } else {
-            println!("Unknown request");
             send_http_response(socket, Response::Unknown, 400).await
         }
     } {
@@ -233,6 +232,8 @@ async fn send_http_response<'a>(
     let status = status.format_into(&mut buf);
     socket.write_all(status.as_bytes()).await?;
 
+    // This must be big enough for all but the index.html,
+    // otherwise we crash.
     let mut payload = [0u8; 1024];
 
     let (buffer, len) = match response {
