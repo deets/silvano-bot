@@ -93,36 +93,28 @@ impl<'a> MovementController<'a> {
         this
     }
 
-    async fn drive(&mut self) {
+    async fn drive(&mut self) -> Option<(i32, i32)> {
+        let mut res = None;
         while !self.receiver.is_empty() {
             let movement = self.receiver.receive().await;
-            println!("drive: {:?}", movement);
             self.last_update = Instant::now();
-            self.set_motor(movement.left, movement.right).await;
+            res = self.set_motor(movement.left, movement.right).await.ok();
         }
         if self.last_update.elapsed() > Duration::from_millis(500) {
-            self.set_motor(0.0, 0.0).await;
+            res = self.set_motor(0.0, 0.0).await.ok();
         }
+        res
     }
 
-    async fn set_motor(&mut self, left: f32, right: f32) {
+    async fn set_motor(&mut self, left: f32, right: f32) -> Result<(i32, i32), Error> {
         let mut count = COUNT.load(Ordering::Relaxed);
         count += 1;
         COUNT.store(count, Ordering::Relaxed);
         let left = (-left * 127.0 + 128.0) as u8;
         let right = (-right * 127.0 + 128.0) as u8;
-        println!("set_motor: {}, {} {}", count, left, right);
-        println!(
-            "set_motor:left:{:?}",
-            self.set_register_u8(MD23_LEFT, left).await
-        );
-        println!(
-            "set_motor:right:{:?}",
-            self.set_register_u8(MD23_RIGHT, right).await
-        );
-        // println!("encoders: {:?}", self.read_encoders().await);
-        // println!("speeds: {:?}", self.read_speed().await);
-        // println!("mode: {:?}", self.read_mode().await);
+        self.set_register_u8(MD23_LEFT, left).await?;
+        self.set_register_u8(MD23_RIGHT, right).await?;
+        self.read_encoders().await
     }
 
     async fn set_register_u8(&mut self, reg: u8, value: u8) -> Result<(), Error> {
@@ -161,20 +153,30 @@ impl<'a> MovementController<'a> {
         let _ = self.bus.read_async(MD23_ADDRESS, &mut value).await;
         Ok(value[0])
     }
-
-    async fn read_speed(&mut self) -> Result<(u8, u8), Error> {
-        Ok((
-            self.read_register_u8(MD23_LEFT).await?,
-            self.read_register_u8(MD23_RIGHT).await?,
-        ))
-    }
 }
+
+static LEFT_ENCODER: AtomicI32 = AtomicI32::new(0);
+static RIGHT_ENCODER: AtomicI32 = AtomicI32::new(0);
 
 #[embassy_executor::task]
 pub async fn movement_task(mut controller: MovementController<'static>) -> ! {
-    let mut ticker = Ticker::every(Duration::from_millis(100));
+    let mut ticker = Ticker::every(Duration::from_millis(10));
     loop {
-        controller.drive().await;
+        controller
+            .drive()
+            .await
+            .and_then(|(left_encoder, right_encoder)| {
+                LEFT_ENCODER.store(left_encoder, Ordering::Relaxed);
+                RIGHT_ENCODER.store(right_encoder, Ordering::Relaxed);
+                Some((left_encoder, right_encoder))
+            });
         ticker.next().await;
     }
+}
+
+pub fn last_encoder_values() -> (i32, i32) {
+    (
+        LEFT_ENCODER.load(Ordering::Relaxed),
+        RIGHT_ENCODER.load(Ordering::Relaxed),
+    )
 }

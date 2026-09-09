@@ -63,6 +63,8 @@ edge-nal_060 = { version = "0.6.0", package = "edge-nal" }
 edge-nal-embassy = "0.8.1"
 httparse = { version = "1.10.1", default-features = false }
 embassy-sync = "0.7.2"
+serde = { version = "1.0", default-features = false , features = ["derive", "alloc"]}
+serde-json-core = "0.6.0"
 
 
 [profile.dev]

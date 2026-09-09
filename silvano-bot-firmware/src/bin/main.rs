@@ -26,13 +26,14 @@ use esp_backtrace as _;
 #[cfg(target_arch = "riscv32")]
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::{clock::CpuClock, ram, rng::Rng, timer::timg::TimerGroup};
-use esp_println::{print, println};
+use esp_println::println;
 use esp_radio::{
     Controller,
     wifi::{AccessPointConfig, ModeConfig, WifiApState, WifiController, WifiDevice, WifiEvent},
 };
+use serde::Serialize;
 use silvano_bot_firmware::movement::{
-    Movement, movement_task, parse_query_string_for_motor_movement,
+    Movement, last_encoder_values, movement_task, parse_query_string_for_motor_movement,
 };
 use static_cell::StaticCell;
 
@@ -190,11 +191,9 @@ async fn dispatch(
     socket: &mut TcpSocket<'_>,
     movement_sender: Sender<'static, NoopRawMutex, Movement, 4>,
 ) {
-    print!("{}", request);
-    println!();
     if let Err(e) = {
         if request.starts_with("GET / ") {
-            send_http_response(socket, INDEX_HTML, 200).await
+            send_http_response(socket, Response::Buffer(INDEX_HTML), 200).await
         } else if request.starts_with("GET /move?") {
             let mut headers = [httparse::EMPTY_HEADER; 64];
             let mut req = httparse::Request::new(&mut headers);
@@ -203,38 +202,62 @@ async fn dispatch(
                     if let Some(movement) = parse_query_string_for_motor_movement(req.path) {
                         movement_sender.send(movement).await;
                     }
-                    send_http_response(socket, b"<html><body>Moving</body></html>", 200).await
+                    send_http_response(socket, Response::Movement(last_encoder_values()), 200).await
                 }
-                Err(_) => send_http_response(socket, b"<html><body>Error</body></html>", 500).await,
+                Err(_) => send_http_response(socket, Response::Error, 500).await,
             }
         } else {
             println!("Unknown request");
-            send_http_response(socket, b"<html><body>Unknown request</body></html>", 400).await
+            send_http_response(socket, Response::Unknown, 400).await
         }
     } {
         println!("write error: {:?}", e);
     }
 }
 
-async fn send_http_response(
+#[derive(Serialize)]
+enum Response<'a> {
+    Unknown,
+    Movement((i32, i32)),
+    Error,
+    Buffer(&'a [u8]),
+}
+
+async fn send_http_response<'a>(
     socket: &mut TcpSocket<'_>,
-    payload: &[u8],
+    response: Response<'a>,
     status: usize,
 ) -> Result<(), embassy_net::tcp::Error> {
     let mut buf = NumBuffer::new();
     socket.write_all(b"HTTP/1.0 ").await?;
     let status = status.format_into(&mut buf);
     socket.write_all(status.as_bytes()).await?;
-    socket
-        .write_all(b" OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: ")
-        .await?;
-    let content_length = payload.len().format_into(&mut buf);
+
+    let mut payload = [0u8; 1024];
+
+    let (buffer, len) = match response {
+        Response::Buffer(buf) => {
+            socket
+                .write_all(b" OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: ")
+                .await?;
+            (buf, buf.len())
+        }
+        _ => {
+            socket
+                .write_all(b" OK\r\nContent-Type: application/json\r\nContent-Length: ")
+                .await?;
+            let len = serde_json_core::to_slice(&response, &mut payload[..]).unwrap();
+            (payload.as_slice(), len)
+        }
+    };
+
+    let content_length = len.format_into(&mut buf);
     socket.write_all(content_length.as_bytes()).await?;
     socket.write_all(b"\r\n\r\n").await?;
     let mut written = 0;
-    while written < payload.len() {
-        let until = core::cmp::min(written + BLOCK_SIZE, payload.len());
-        socket.write_all(&payload[written..until]).await?;
+    while written < len {
+        let until = core::cmp::min(written + BLOCK_SIZE, len);
+        socket.write_all(&buffer[written..until]).await?;
         written += 1024;
         socket.flush().await?;
     }
