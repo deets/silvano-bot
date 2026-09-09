@@ -8,4 +8,4 @@
 
 *** Pinout
 
-[[file:lilygo-t8-s2-v11.jpg]]
+[[file:lilygo-ttgo-t3-lora32-868mhz-v1.6.1-esp32-600x600w.jpg]]
