@@ -100,7 +100,6 @@ impl<'a> MovementController<'a> {
             self.set_motor(movement.left, movement.right).await.ok();
         }
         if self.last_update.elapsed() > Duration::from_millis(500) {
-            println!("reset motor");
             self.set_motor(0.0, 0.0).await.ok();
         }
         let encoders = self.read_encoders().await.ok();

@@ -19,7 +19,7 @@ use embassy_net::{
 };
 use embassy_sync::channel::Channel;
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Sender};
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Instant, Timer};
 use embedded_io_async::Write;
 use esp_alloc as _;
 use esp_backtrace as _;
@@ -32,6 +32,8 @@ use esp_radio::{
     wifi::{AccessPointConfig, ModeConfig, WifiApState, WifiController, WifiDevice, WifiEvent},
 };
 use serde::Serialize;
+use silvano_bot_firmware::display::SilvanoBotDisplay;
+use silvano_bot_firmware::display::display_task;
 use silvano_bot_firmware::movement::{
     Movement, last_encoder_values, movement_task, parse_query_string_for_motor_movement,
 };
@@ -63,7 +65,7 @@ async fn main(spawner: Spawner) -> ! {
     esp_alloc::heap_allocator!(#[ram(reclaimed)] size: 64 * 1024);
     esp_alloc::heap_allocator!(size: 36 * 1024);
 
-    let i2c_bus = esp_hal::i2c::master::I2c::new(
+    let md23_i2c_bus = esp_hal::i2c::master::I2c::new(
         peripherals.I2C0,
         esp_hal::i2c::master::Config::default().with_frequency(esp_hal::time::Rate::from_khz(400)),
     )
@@ -74,9 +76,12 @@ async fn main(spawner: Spawner) -> ! {
     let channel: Channel<NoopRawMutex, Movement, 4> = Channel::new();
     let static_channel = CHANNEL.init(channel);
 
-    let movement_controller =
-        silvano_bot_firmware::movement::MovementController::new(i2c_bus, static_channel.receiver())
-            .await;
+    let movement_controller = silvano_bot_firmware::movement::MovementController::new(
+        md23_i2c_bus,
+        static_channel.receiver(),
+    )
+    .await;
+
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     #[cfg(target_arch = "riscv32")]
     let sw_int = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
@@ -85,6 +90,17 @@ async fn main(spawner: Spawner) -> ! {
         #[cfg(target_arch = "riscv32")]
         sw_int.software_interrupt0,
     );
+
+    // Needs to be after starting RTOS!
+    let display_i2c_bus = esp_hal::i2c::master::I2c::new(
+        peripherals.I2C1,
+        esp_hal::i2c::master::Config::default().with_frequency(esp_hal::time::Rate::from_khz(400)),
+    )
+    .unwrap()
+    .with_scl(peripherals.GPIO22)
+    .with_sda(peripherals.GPIO21)
+    .into_async();
+    let display = SilvanoBotDisplay::new(display_i2c_bus).await;
 
     let esp_radio_ctrl = &*mk_static!(Controller<'static>, esp_radio::init().unwrap());
 
@@ -114,6 +130,7 @@ async fn main(spawner: Spawner) -> ! {
     );
 
     spawner.spawn(movement_task(movement_controller)).ok();
+    spawner.spawn(display_task(display)).ok();
     spawner.spawn(connection(controller)).ok();
     spawner.spawn(net_task(runner)).ok();
     spawner
@@ -222,6 +239,15 @@ enum Response<'a> {
     Buffer(&'a [u8]),
 }
 
+async fn write_time_header(socket: &mut TcpSocket<'_>) -> Result<(), embassy_net::tcp::Error> {
+    let mut buf = NumBuffer::new();
+    let timestamp = Instant::now().as_micros();
+    socket.write_all(b"Timestamp: ").await?;
+    let timestamp_buf = timestamp.format_into(&mut buf);
+    socket.write_all(timestamp_buf.as_bytes()).await?;
+    socket.write_all(b"\r\n").await
+}
+
 async fn send_http_response<'a>(
     socket: &mut TcpSocket<'_>,
     response: Response<'a>,
@@ -231,7 +257,6 @@ async fn send_http_response<'a>(
     socket.write_all(b"HTTP/1.0 ").await?;
     let status = status.format_into(&mut buf);
     socket.write_all(status.as_bytes()).await?;
-
     // This must be big enough for all but the index.html,
     // otherwise we crash.
     let mut payload = [0u8; 1024];
@@ -254,7 +279,13 @@ async fn send_http_response<'a>(
 
     let content_length = len.format_into(&mut buf);
     socket.write_all(content_length.as_bytes()).await?;
-    socket.write_all(b"\r\n\r\n").await?;
+    socket.write_all(b"\r\n").await?;
+
+    write_time_header(socket).await?;
+
+    // Extra CRLF to terminate headers
+    socket.write_all(b"\r\n").await?;
+
     let mut written = 0;
     while written < len {
         let until = core::cmp::min(written + BLOCK_SIZE, len);

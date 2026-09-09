@@ -1,6 +1,4 @@
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use embassy_sync::channel::Receiver;
-use embassy_time::{Duration, Instant, Ticker};
+use embassy_time::{Duration, Ticker};
 use embedded_graphics::{
     geometry::Point,
     mono_font::{MonoTextStyleBuilder, ascii::FONT_6X10},
@@ -28,10 +26,8 @@ impl<'a> SilvanoBotDisplay<'a> {
         let interface = I2CDisplayInterface::new(bus);
         let mut display = Ssd1306Async::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
             .into_buffered_graphics_mode();
-        display.init().await.unwrap();
-
-        let this = Self { display };
-        this
+        display.init().await.expect("Can't init display");
+        Self { display }
     }
 
     pub async fn update(&mut self) {
