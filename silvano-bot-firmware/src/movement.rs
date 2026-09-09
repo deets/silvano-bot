@@ -1,4 +1,4 @@
-use core::sync::atomic::{AtomicI32, Ordering};
+use core::sync::atomic::{AtomicI32, AtomicU8, Ordering};
 
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::Receiver;
@@ -93,28 +93,33 @@ impl<'a> MovementController<'a> {
         this
     }
 
-    async fn drive(&mut self) -> Option<(i32, i32)> {
-        let mut res = None;
+    async fn drive(&mut self) -> Option<((i32, i32), (u8, u8))> {
         while !self.receiver.is_empty() {
             let movement = self.receiver.receive().await;
             self.last_update = Instant::now();
-            res = self.set_motor(movement.left, movement.right).await.ok();
+            self.set_motor(movement.left, movement.right).await.ok();
         }
         if self.last_update.elapsed() > Duration::from_millis(500) {
-            res = self.set_motor(0.0, 0.0).await.ok();
+            println!("reset motor");
+            self.set_motor(0.0, 0.0).await.ok();
         }
-        res
+        let encoders = self.read_encoders().await.ok();
+        let speeds = self.read_speeds().await.ok();
+        if encoders.is_some() && speeds.is_some() {
+            Some((encoders.unwrap(), speeds.unwrap()))
+        } else {
+            None
+        }
     }
 
-    async fn set_motor(&mut self, left: f32, right: f32) -> Result<(i32, i32), Error> {
+    async fn set_motor(&mut self, left: f32, right: f32) -> Result<(), Error> {
         let mut count = COUNT.load(Ordering::Relaxed);
         count += 1;
         COUNT.store(count, Ordering::Relaxed);
         let left = (-left * 127.0 + 128.0) as u8;
         let right = (-right * 127.0 + 128.0) as u8;
         self.set_register_u8(MD23_LEFT, left).await?;
-        self.set_register_u8(MD23_RIGHT, right).await?;
-        self.read_encoders().await
+        self.set_register_u8(MD23_RIGHT, right).await
     }
 
     async fn set_register_u8(&mut self, reg: u8, value: u8) -> Result<(), Error> {
@@ -143,8 +148,11 @@ impl<'a> MovementController<'a> {
         Ok((left, right))
     }
 
-    async fn read_mode(&mut self) -> Result<u8, Error> {
-        self.read_register_u8(MD23_MODE).await
+    async fn read_speeds(&mut self) -> Result<(u8, u8), Error> {
+        Ok((
+            self.read_register_u8(MD23_LEFT).await?,
+            self.read_register_u8(MD23_RIGHT).await?,
+        ))
     }
 
     async fn read_register_u8(&mut self, reg: u8) -> Result<u8, Error> {
@@ -157,19 +165,22 @@ impl<'a> MovementController<'a> {
 
 static LEFT_ENCODER: AtomicI32 = AtomicI32::new(0);
 static RIGHT_ENCODER: AtomicI32 = AtomicI32::new(0);
+static LEFT_SPEED: AtomicU8 = AtomicU8::new(0);
+static RIGHT_SPEED: AtomicU8 = AtomicU8::new(0);
 
 #[embassy_executor::task]
 pub async fn movement_task(mut controller: MovementController<'static>) -> ! {
     let mut ticker = Ticker::every(Duration::from_millis(10));
     loop {
-        controller
-            .drive()
-            .await
-            .and_then(|(left_encoder, right_encoder)| {
+        controller.drive().await.and_then(
+            |((left_encoder, right_encoder), (left_speed, right_speed))| {
                 LEFT_ENCODER.store(left_encoder, Ordering::Relaxed);
                 RIGHT_ENCODER.store(right_encoder, Ordering::Relaxed);
-                Some((left_encoder, right_encoder))
-            });
+                LEFT_SPEED.store(left_speed, Ordering::Relaxed);
+                RIGHT_SPEED.store(right_speed, Ordering::Relaxed);
+                Some(((left_encoder, right_encoder), (left_speed, right_speed)))
+            },
+        );
         ticker.next().await;
     }
 }
@@ -178,5 +189,12 @@ pub fn last_encoder_values() -> (i32, i32) {
     (
         LEFT_ENCODER.load(Ordering::Relaxed),
         RIGHT_ENCODER.load(Ordering::Relaxed),
+    )
+}
+
+pub fn last_speed_values() -> (u8, u8) {
+    (
+        LEFT_SPEED.load(Ordering::Relaxed),
+        RIGHT_SPEED.load(Ordering::Relaxed),
     )
 }
