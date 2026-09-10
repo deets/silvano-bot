@@ -35,7 +35,7 @@ use serde::Serialize;
 use silvano_bot_firmware::display::SilvanoBotDisplay;
 use silvano_bot_firmware::display::display_task;
 use silvano_bot_firmware::movement::{
-    Movement, last_encoder_values, movement_task, parse_query_string_for_motor_movement,
+    MD23State, Movement, movement_task, parse_query_string_for_motor_movement,
 };
 use static_cell::StaticCell;
 
@@ -54,7 +54,8 @@ macro_rules! mk_static {
 const BLOCK_SIZE: usize = 1024;
 const INDEX_HTML: &[u8] = include_bytes!("../../assets/index.html");
 const GW_IP_ADDR_ENV: Option<&'static str> = option_env!("GATEWAY_IP");
-static CHANNEL: StaticCell<Channel<NoopRawMutex, Movement, 4>> = StaticCell::new();
+static CONTROL_CHANNEL: StaticCell<Channel<NoopRawMutex, Movement, 4>> = StaticCell::new();
+static STATE_CHANNEL: StaticCell<Channel<NoopRawMutex, MD23State, 16>> = StaticCell::new();
 
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
@@ -73,12 +74,16 @@ async fn main(spawner: Spawner) -> ! {
     .with_scl(peripherals.GPIO14)
     .with_sda(peripherals.GPIO13)
     .into_async();
-    let channel: Channel<NoopRawMutex, Movement, 4> = Channel::new();
-    let static_channel = CHANNEL.init(channel);
+    let control_channel = Channel::new();
+    let static_control_channel = CONTROL_CHANNEL.init(control_channel);
+
+    let state_channel = Channel::new();
+    let static_state_channel = STATE_CHANNEL.init(state_channel);
 
     let movement_controller = silvano_bot_firmware::movement::MovementController::new(
         md23_i2c_bus,
-        static_channel.receiver(),
+        static_control_channel.receiver(),
+        static_state_channel.sender(),
     )
     .await;
 
@@ -100,7 +105,7 @@ async fn main(spawner: Spawner) -> ! {
     .with_scl(peripherals.GPIO22)
     .with_sda(peripherals.GPIO21)
     .into_async();
-    let display = SilvanoBotDisplay::new(display_i2c_bus).await;
+    let display = SilvanoBotDisplay::new(display_i2c_bus, static_state_channel.receiver()).await;
 
     let esp_radio_ctrl = &*mk_static!(Controller<'static>, esp_radio::init().unwrap());
 
@@ -186,7 +191,7 @@ async fn main(spawner: Spawner) -> ! {
                         unsafe { core::str::from_utf8_unchecked(&buffer[..(pos + len)]) };
 
                     if to_print.contains("\r\n\r\n") {
-                        dispatch(to_print, &mut socket, static_channel.sender()).await;
+                        dispatch(to_print, &mut socket, static_control_channel.sender()).await;
                         break;
                     }
 
@@ -219,7 +224,7 @@ async fn dispatch(
                     if let Some(movement) = parse_query_string_for_motor_movement(req.path) {
                         movement_sender.send(movement).await;
                     }
-                    send_http_response(socket, Response::Movement(last_encoder_values()), 200).await
+                    send_http_response(socket, Response::Movement((0, 0)), 200).await
                 }
                 Err(_) => send_http_response(socket, Response::Error, 500).await,
             }
