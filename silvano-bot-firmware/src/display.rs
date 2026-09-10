@@ -1,3 +1,5 @@
+use core::sync::atomic::{AtomicU32, Ordering};
+
 use embassy_time::{Duration, Ticker};
 use embedded_graphics::{
     geometry::Point,
@@ -12,6 +14,8 @@ use ssd1306::{I2CDisplayInterface, mode::BufferedGraphicsModeAsync, prelude::*};
 use ssd1306::{Ssd1306Async, rotation::DisplayRotation, size::DisplaySize128x64};
 
 use crate::movement::last_speed_values;
+
+static COUNTER: AtomicU32 = AtomicU32::new(0);
 
 pub struct SilvanoBotDisplay<'a> {
     display: Ssd1306Async<
@@ -31,6 +35,10 @@ impl<'a> SilvanoBotDisplay<'a> {
     }
 
     pub async fn update(&mut self) {
+        let mut counter = COUNTER.load(Ordering::Relaxed);
+        counter += 1;
+        COUNTER.store(counter, Ordering::Relaxed);
+
         let (left, right) = last_speed_values();
         let text_style = MonoTextStyleBuilder::new()
             .font(&FONT_6X10)
@@ -42,7 +50,11 @@ impl<'a> SilvanoBotDisplay<'a> {
             .draw(&mut self.display)
             .unwrap();
         let output = format!(40; "right = {}", right).expect("Can't format string");
-        Text::with_baseline(&output, Point::new(0, 16), text_style, Baseline::Top)
+        Text::with_baseline(&output, Point::new(0, 11), text_style, Baseline::Top)
+            .draw(&mut self.display)
+            .unwrap();
+        let output = format!(40; "count = {}", counter).expect("Can't format string");
+        Text::with_baseline(&output, Point::new(0, 22), text_style, Baseline::Top)
             .draw(&mut self.display)
             .unwrap();
         self.display.flush().await.unwrap();
