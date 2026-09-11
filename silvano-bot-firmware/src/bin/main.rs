@@ -17,8 +17,9 @@ use embassy_executor::Spawner;
 use embassy_net::{
     IpListenEndpoint, Ipv4Cidr, Runner, StackResources, StaticConfigV4, tcp::TcpSocket,
 };
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::Channel;
-use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Sender};
+use embassy_sync::watch::{Sender as WatchSender, Watch};
 use embassy_time::{Duration, Instant, Timer};
 use embedded_io_async::Write;
 use esp_alloc as _;
@@ -54,7 +55,7 @@ macro_rules! mk_static {
 const BLOCK_SIZE: usize = 1024;
 const INDEX_HTML: &[u8] = include_bytes!("../../assets/index.html");
 const GW_IP_ADDR_ENV: Option<&'static str> = option_env!("GATEWAY_IP");
-static CONTROL_CHANNEL: StaticCell<Channel<NoopRawMutex, Movement, 4>> = StaticCell::new();
+static CONTROL_WATCH: StaticCell<Watch<NoopRawMutex, Movement, 4>> = StaticCell::new();
 static STATE_CHANNEL: StaticCell<Channel<NoopRawMutex, MD23State, 16>> = StaticCell::new();
 
 #[esp_rtos::main]
@@ -74,15 +75,17 @@ async fn main(spawner: Spawner) -> ! {
     .with_scl(peripherals.GPIO14)
     .with_sda(peripherals.GPIO13)
     .into_async();
-    let control_channel = Channel::new();
-    let static_control_channel = CONTROL_CHANNEL.init(control_channel);
+    let control_watch = Watch::new();
+    let static_control_watch = CONTROL_WATCH.init(control_watch);
 
     let state_channel = Channel::new();
     let static_state_channel = STATE_CHANNEL.init(state_channel);
 
     let movement_controller = silvano_bot_firmware::movement::MovementController::new(
         md23_i2c_bus,
-        static_control_channel.receiver(),
+        static_control_watch
+            .receiver()
+            .expect("Can't get control receiver"),
         static_state_channel.sender(),
     )
     .await;
@@ -191,7 +194,7 @@ async fn main(spawner: Spawner) -> ! {
                         unsafe { core::str::from_utf8_unchecked(&buffer[..(pos + len)]) };
 
                     if to_print.contains("\r\n\r\n") {
-                        dispatch(to_print, &mut socket, static_control_channel.sender()).await;
+                        dispatch(to_print, &mut socket, static_control_watch.sender()).await;
                         break;
                     }
 
@@ -211,7 +214,7 @@ async fn main(spawner: Spawner) -> ! {
 async fn dispatch(
     request: &str,
     socket: &mut TcpSocket<'_>,
-    movement_sender: Sender<'static, NoopRawMutex, Movement, 4>,
+    movement_sender: WatchSender<'static, NoopRawMutex, Movement, 4>,
 ) {
     if let Err(e) = {
         if request.starts_with("GET / ") {
@@ -222,7 +225,7 @@ async fn dispatch(
             match req.parse(request.as_bytes()) {
                 Ok(_) => {
                     if let Some(movement) = parse_query_string_for_motor_movement(req.path) {
-                        movement_sender.send(movement).await;
+                        movement_sender.send(movement);
                     }
                     send_http_response(socket, Response::Movement((0, 0)), 200).await
                 }

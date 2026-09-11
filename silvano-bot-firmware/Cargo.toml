@@ -68,6 +68,7 @@ serde-json-core = "0.6.0"
 ssd1306 = { version = "0.10.0", features = ["async"] }
 embedded-graphics = "0.8.2"
 heapless = "0.9.3"
+atomic_enum = "0.3.0"
 
 
 [profile.dev]

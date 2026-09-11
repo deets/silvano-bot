@@ -1,4 +1,4 @@
-use core::sync::atomic::{AtomicU32, Ordering};
+use core::sync::atomic::AtomicU32;
 
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, channel::Receiver};
 use embassy_time::{Duration, Ticker};
@@ -15,9 +15,7 @@ use heapless::{HistoryBuf, format};
 use ssd1306::{I2CDisplayInterface, mode::BufferedGraphicsModeAsync, prelude::*};
 use ssd1306::{Ssd1306Async, rotation::DisplayRotation, size::DisplaySize128x64};
 
-use crate::movement::MD23State;
-
-static COUNTER: AtomicU32 = AtomicU32::new(0);
+use crate::movement::{MD23State, codepos, last_error};
 
 type DisplayType<'a> = Ssd1306Async<
     I2CInterface<I2c<'a, Async>>,
@@ -31,6 +29,7 @@ pub struct SilvanoBotDisplay<'a> {
     receiver: Receiver<'static, NoopRawMutex, MD23State, 16>,
     last_index: Option<usize>,
     progress: usize,
+    liveness: usize,
 }
 
 impl<'a> SilvanoBotDisplay<'a> {
@@ -48,11 +47,13 @@ impl<'a> SilvanoBotDisplay<'a> {
             receiver,
             last_index: None,
             progress: 0,
+            liveness: 0,
         }
     }
 
     pub async fn update(&mut self) {
-        let ((sx, sy), (ex, ey)) = self.progress_indicator();
+        let ((sx, sy), (ex, ey)) = self.movement_task_progress_indicator();
+        let ((dsx, dsy), (dex, dey)) = self.display_task_progress_indicator();
         self.update_state().await;
 
         let display = &mut self.display;
@@ -61,8 +62,13 @@ impl<'a> SilvanoBotDisplay<'a> {
             .text_color(BinaryColor::On)
             .build();
         display.clear(BinaryColor::Off).unwrap();
-        let output = format!(40; "Speeds:").expect("Can't format string");
-        Text::with_baseline(&output, Point::zero(), text_style, Baseline::Top)
+        let output = if let Some(error) = last_error() {
+            format!(40; "Error: {}, Codep: {}", error, codepos()).expect("Can't format string")
+        } else {
+            format!(40; "Codepos: {}", codepos()).expect("Can't format string")
+        };
+
+        Text::with_baseline(&output, Point::new(4, 0), text_style, Baseline::Top)
             .draw(display)
             .unwrap();
         // The display is 64 pixels high, we remove 16 for the top line, from the 48
@@ -89,10 +95,16 @@ impl<'a> SilvanoBotDisplay<'a> {
             .into_styled(style)
             .draw(display)
             .unwrap();
+
+        Line::new(Point::new(dsx, dsy), Point::new(dex, dey))
+            .into_styled(style)
+            .draw(display)
+            .unwrap();
+
         display.flush().await.unwrap();
     }
 
-    fn progress_indicator(&mut self) -> ((i32, i32), (i32, i32)) {
+    fn movement_task_progress_indicator(&mut self) -> ((i32, i32), (i32, i32)) {
         // It appears as if the movement taks dies, to debug this
         // progressi is only made when the state values change
         let current_index = self.state_values.recent_index();
@@ -114,6 +126,17 @@ impl<'a> SilvanoBotDisplay<'a> {
             _ => unreachable!(),
         };
         ((sx, sy), (-sx, -sy))
+    }
+
+    fn display_task_progress_indicator(&mut self) -> ((i32, i32), (i32, i32)) {
+        self.liveness += 1;
+        // Going in a 3x3 circle
+        let v = self.liveness as i32 % 14;
+        if v < 8 {
+            ((0, v), (2, v))
+        } else {
+            ((0, 14 - v), (2, 14 - v))
+        }
     }
 
     async fn update_state(&mut self) {
