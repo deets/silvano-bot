@@ -69,7 +69,7 @@ async fn main(spawner: Spawner) -> ! {
 
     let md23_i2c_bus = esp_hal::i2c::master::I2c::new(
         peripherals.I2C0,
-        esp_hal::i2c::master::Config::default().with_frequency(esp_hal::time::Rate::from_khz(400)),
+        esp_hal::i2c::master::Config::default().with_frequency(esp_hal::time::Rate::from_khz(100)),
     )
     .unwrap()
     .with_scl(peripherals.GPIO14)
