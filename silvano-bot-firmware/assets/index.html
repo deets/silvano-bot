@@ -87,17 +87,135 @@
       width: 100%;
       min-height: 0;
       display: flex;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
+      gap: 10px;
       position: relative;
+    }
+
+    /* Slider card atop circle in matching glassmorphic/cybernetic style */
+    .slider-card {
+      width: 100%;
+      max-width: 500px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      padding: 8px 14px;
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border-radius: 12px;
+      border: 1px solid rgba(51, 65, 85, 0.5);
+      flex-shrink: 0;
+      touch-action: pan-x;
+    }
+
+    .slider-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.85rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .slider-track-wrap {
+      position: relative;
+      width: 100%;
+      height: 24px;
+      display: flex;
+      align-items: center;
+    }
+
+    .slider-input {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 8px;
+      border-radius: 9999px;
+      outline: none;
+      background: linear-gradient(to right, #3b82f6 0%, #2563eb var(--slider-pct, 40%), rgba(30, 41, 59, 0.8) var(--slider-pct, 40%), rgba(30, 41, 59, 0.8) 100%);
+      border: 1px solid rgba(147, 197, 253, 0.4);
+      box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
+      cursor: pointer;
+      touch-action: pan-x;
+    }
+
+    /* WebKit Thumb */
+    .slider-input::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, #ffffff 0%, #e2e8f0 60%, #94a3b8 100%);
+      box-shadow:
+        0 2px 8px rgba(0, 0, 0, 0.6),
+        0 0 10px rgba(255, 255, 255, 0.7);
+      border: 2px solid #ffffff;
+      cursor: pointer;
+      transition: transform 0.1s ease;
+    }
+
+    .slider-input::-webkit-slider-thumb:hover {
+      transform: scale(1.1);
+    }
+
+    .slider-input::-webkit-slider-thumb:active {
+      transform: scale(1.15);
+      box-shadow:
+        0 2px 10px rgba(0, 0, 0, 0.8),
+        0 0 14px rgba(56, 189, 248, 0.8);
+    }
+
+    /* Firefox Thumb */
+    .slider-input::-moz-range-thumb {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, #ffffff 0%, #e2e8f0 60%, #94a3b8 100%);
+      box-shadow:
+        0 2px 8px rgba(0, 0, 0, 0.6),
+        0 0 10px rgba(255, 255, 255, 0.7);
+      border: 2px solid #ffffff;
+      cursor: pointer;
+      transition: transform 0.1s ease;
+    }
+
+    .slider-input::-moz-range-thumb:hover {
+      transform: scale(1.1);
+    }
+
+    .slider-input::-moz-range-thumb:active {
+      transform: scale(1.15);
+      box-shadow:
+        0 2px 10px rgba(0, 0, 0, 0.8),
+        0 0 14px rgba(56, 189, 248, 0.8);
+    }
+
+    .slider-input::-moz-range-progress {
+      background: linear-gradient(90deg, #1d4ed8, #3b82f6);
+      height: 8px;
+      border-radius: 9999px;
+    }
+
+    .slider-scale {
+      display: flex;
+      justify-content: space-between;
+      padding: 0 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.65rem;
+      color: #64748b;
+      margin-top: -2px;
     }
 
     /* Circle sizing: 90% of the width or height of available space, whatever fits best */
     .joystick-circle {
       position: relative;
       /* CSS fallback: 90% of available viewport space */
-      width: min(90vw, calc((100dvh - 160px) * 0.9));
-      height: min(90vw, calc((100dvh - 160px) * 0.9));
+      width: min(90vw, calc((100dvh - 240px) * 0.9));
+      height: min(90vw, calc((100dvh - 240px) * 0.9));
       max-width: 90vmin;
       max-height: 90vmin;
       aspect-ratio: 1 / 1;
@@ -248,6 +366,23 @@
   </header>
 
   <main id="main-container">
+    <div class="slider-card" id="slider-card">
+      <div class="slider-header">
+        <span class="metric-label">Max Radius:</span>
+        <span class="metric-val" id="val-max-r">0.40</span>
+      </div>
+      <div class="slider-track-wrap">
+        <input type="range" id="slider-max-r" class="slider-input" min="0" max="1" step="0.01" value="0.4" aria-label="Max Radius Limit">
+      </div>
+      <div class="slider-scale">
+        <span>0.0</span>
+        <span>0.25</span>
+        <span>0.50</span>
+        <span>0.75</span>
+        <span>1.0</span>
+      </div>
+    </div>
+
     <div class="joystick-circle" id="circle">
       <div class="crosshair-h"></div>
       <div class="crosshair-v"></div>
@@ -281,11 +416,17 @@
       const urlPreview = document.getElementById('url-preview');
       const valLeft = document.getElementById('val-left');
       const valRight = document.getElementById('val-right');
+      const sliderCard = document.getElementById('slider-card');
+      const sliderMaxR = document.getElementById('slider-max-r');
+      const valMaxR = document.getElementById('val-max-r');
 
       let isPressed = false;
       let activePointerId = null;
       let intervalTimer = null;
       let inFlight = false;
+      let maxR = 0.4;
+      let lastClientX = null;
+      let lastClientY = null;
 
       // Current control values
       const current = {
@@ -298,11 +439,13 @@
         right: 0     // normalized motor speed right
       };
 
-      // Responsive sizing: ensure circle spans exactly 90% of width or height, whatever fits best
+      // Responsive sizing: ensure circle fits nicely with slider atop
       function updateCircleSize() {
         if (!mainContainer || !circle) return;
         const availableW = mainContainer.clientWidth;
-        const availableH = mainContainer.clientHeight;
+        const sliderH = sliderCard ? sliderCard.offsetHeight : 0;
+        const gap = sliderH > 0 ? 10 : 0;
+        const availableH = mainContainer.clientHeight - sliderH - gap;
         if (availableW > 0 && availableH > 0) {
           const size = Math.floor(Math.min(availableW, availableH) * 0.90);
           circle.style.width = size + 'px';
@@ -318,6 +461,9 @@
           }
         });
         ro.observe(mainContainer);
+        if (sliderCard) {
+          ro.observe(sliderCard);
+        }
       } else {
         window.addEventListener('resize', () => {
           updateCircleSize();
@@ -395,10 +541,11 @@
         const deltaY = clientY - centerY;
 
         const dist = Math.hypot(deltaX, deltaY);
-        const clampedDist = Math.min(dist, maxRadius);
+        const maxAllowedDist = maxRadius * maxR;
+        const clampedDist = Math.min(dist, maxAllowedDist);
 
-        // Normalized radius [0.0, 1.0]
-        current.r = maxRadius > 0 ? clampedDist / maxRadius : 0;
+        // Normalized radius [0.0, 1.0] limited to maxR
+        current.r = maxRadius > 0 ? Math.min(clampedDist / maxRadius, maxR) : 0;
 
         // In screen coordinates, Y points downwards.
         // For Cartesian coordinates where forward/up is positive:
@@ -492,11 +639,64 @@
         } catch (_) {}
       }
 
+      function setMaxRadius(val) {
+        maxR = Math.max(0, Math.min(1, parseFloat(val) || 0));
+        sliderMaxR.value = maxR;
+        valMaxR.textContent = maxR.toFixed(2);
+        sliderMaxR.style.setProperty('--slider-pct', `${(maxR * 100).toFixed(1)}%`);
+        if (isPressed && lastClientX !== null && lastClientY !== null) {
+          updateCoordinates(lastClientX, lastClientY);
+          sendMove();
+        }
+      }
+
+      sliderMaxR.addEventListener('input', (e) => {
+        setMaxRadius(e.target.value);
+      });
+
+      let isSliderDragging = false;
+      function handleSliderPointer(e) {
+        const rect = sliderMaxR.getBoundingClientRect();
+        if (rect.width > 0) {
+          const ratio = (e.clientX - rect.left) / rect.width;
+          const val = Math.round(Math.max(0, Math.min(1, ratio)) * 100) / 100;
+          setMaxRadius(val);
+        }
+      }
+
+      sliderMaxR.addEventListener('pointerdown', (e) => {
+        if (e.button !== undefined && e.button !== 0) return;
+        isSliderDragging = true;
+        sliderMaxR.setPointerCapture(e.pointerId);
+        handleSliderPointer(e);
+      });
+
+      sliderMaxR.addEventListener('pointermove', (e) => {
+        if (isSliderDragging) {
+          handleSliderPointer(e);
+        }
+      });
+
+      function endSliderDrag(e) {
+        if (isSliderDragging) {
+          isSliderDragging = false;
+          try {
+            sliderMaxR.releasePointerCapture(e.pointerId);
+          } catch (_) {}
+        }
+      }
+
+      sliderMaxR.addEventListener('pointerup', endSliderDrag);
+      sliderMaxR.addEventListener('pointercancel', endSliderDrag);
+      sliderCard.addEventListener('pointerdown', (e) => e.stopPropagation());
+
       function onPointerDown(e) {
         if (e.button !== undefined && e.button !== 0) return; // Primary mouse button only
 
         isPressed = true;
         activePointerId = e.pointerId;
+        lastClientX = e.clientX;
+        lastClientY = e.clientY;
         circle.setPointerCapture(e.pointerId);
 
         knob.style.transition = 'none';
@@ -512,6 +712,8 @@
 
       function onPointerMove(e) {
         if (!isPressed || e.pointerId !== activePointerId) return;
+        lastClientX = e.clientX;
+        lastClientY = e.clientY;
         updateCoordinates(e.clientX, e.clientY);
       }
 
@@ -520,6 +722,8 @@
 
         isPressed = false;
         activePointerId = null;
+        lastClientX = null;
+        lastClientY = null;
 
         clearInterval(intervalTimer);
         intervalTimer = null;
@@ -556,6 +760,9 @@
           resetToCenter();
         }
       });
+
+      // Initialize slider state to 0.4 on load
+      setMaxRadius(0.4);
     })();
   </script>
 </body>
