@@ -20,10 +20,10 @@ class MD23:
         self._bus = I2C(0, scl=Pin(14), sda=Pin(13), freq=100000)
         self._command = None
         self._last_command = time.time()
-        self.drive(0.0, 0.0)
+        self.drive(128, 128)
 
     def drive(self, left, right):
-        left, right = int(-left * 127.0 + 128), int(-right * 127.0 + 128)
+        #left, right = int(-left * 127.0 + 128), int(-right * 127.0 + 128)
         self._bus.writeto_mem(self.ADDRESS, self.MOTOR_LEFT, bytes([left]))
         self._bus.writeto_mem(self.ADDRESS, self.MOTOR_RIGHT, bytes([right]))
 
@@ -35,14 +35,14 @@ class MD23:
                 self._last_command = time.time()
                 self.drive(left, right)
             elif time.time() - self._last_command > 0.5:
-                self.drive(0, 0)
+                self.drive(128, 128)
             await asyncio.sleep_ms(5)
 
     def set_command(self, left, right):
-        self._command = (left, right)
+        self._command = (left << 1, right << 1)
 
 INDEX_HTML_HEADER = """HTTP/1.0 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-cache\r\n\r\n"""
-MOVE_RESPONSE = """HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nContent-Length: 0\r\nCache-Control: no-cache\r\n\r\n"""
+MOVE_RESPONSE = """HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nCache-Control: no-cache\r\n\r\n{}"""
 ERROR_RESPONSE = """HTTP/1.0 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n"""
 
 
@@ -61,30 +61,14 @@ async def handler(set_command, reader: asyncio.stream.StreamReader, writer: asyn
     """
     Async handler function to handle new connections.
     """
-    request = await reader.readline()
     while True:
-        header = await reader.readline()
-        if not header.strip():
-            break
-    if request.startswith("GET / "):
-        with open("index.html") as inf:
-            writer.write(INDEX_HTML_HEADER.format(os.stat("index.html")[6]))
-            await writer.drain()
-            while True:
-                block = inf.read(1024)
-                if not block:
-                    break
-                writer.write(block)
-                await writer.drain()
-    elif request.startswith("GET /move?"):
-        process_move_request(request, set_command)
-        writer.write(MOVE_RESPONSE)
-        await writer.drain()
-    else:
-        writer.write(ERROR_RESPONSE)
-        await writer.drain()
-    writer.close()
-    await writer.wait_closed()
+        while True:
+            left = (await reader.read(1))[0]
+            if left & 0x80:
+                left = left & 0x7f
+                break
+        right = (await reader.read(1))[0]
+        set_command(left, right)
 
 async def main():
     loop = asyncio.get_event_loop()

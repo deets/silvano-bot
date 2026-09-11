@@ -466,7 +466,7 @@
 
         try {
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 200);
+          const timeoutId = setTimeout(() => controller.abort(), 2000);
 
           await fetch(url, {
             method: 'GET',
