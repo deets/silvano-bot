@@ -16,27 +16,30 @@ class MD23:
     MOTOR_LEFT = 1
     MOTOR_RIGHT = 0
 
-    def __init__(self, bus):
-        self._bus = bus
+    def __init__(self):
+        self._bus = I2C(0, scl=Pin(14), sda=Pin(13), freq=100000)
+        self._command = None
+        self._last_command = time.time()
+        self.drive(0.0, 0.0)
 
     def drive(self, left, right):
+        left, right = int(-left * 127.0 + 128), int(-right * 127.0 + 128)
         self._bus.writeto_mem(self.ADDRESS, self.MOTOR_LEFT, bytes([left]))
         self._bus.writeto_mem(self.ADDRESS, self.MOTOR_RIGHT, bytes([right]))
 
-LEFT, RIGHT = 0.0, 0.0
+    async def motor_task(self):
+        while True:
+            if self._command is not None:
+                left, right = self._command
+                self._command = None
+                self._last_command = time.time()
+                self.drive(left, right)
+            elif time.time() - self._last_command > 0.5:
+                self.drive(0, 0)
+            await asyncio.sleep_ms(5)
 
-async def motor_driver():
-    i2c = I2C(0)
-    i2c = I2C(1, scl=Pin(14), sda=Pin(13), freq=100000)
-    md23 = MD23(i2c)
-    while True:
-        try:
-            left, right = int(-LEFT * 127.0 + 128), int(-RIGHT * 127.0 + 128)
-            md23.drive(left, right)
-        except Exception as e:
-            print("i2c error", e)
-        await asyncio.sleep_ms(5)
-
+    def set_command(self, left, right):
+        self._command = (left, right)
 
 INDEX_HTML_HEADER = """HTTP/1.0 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-cache\r\n\r\n"""
 MOVE_RESPONSE = """HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nContent-Length: 0\r\nCache-Control: no-cache\r\n\r\n"""
@@ -48,14 +51,13 @@ def parse_arg(arg):
     return float(number)
 
 
-def process_move_request(request):
-    global LEFT, RIGHT
+def process_move_request(request, set_command):
     args = request.decode("ascii").split("?")[1].split("HTTP")[0].strip()
     left, right = args.split("&")
-    LEFT, RIGHT = parse_arg(left), parse_arg(right)
+    left, right = parse_arg(left), parse_arg(right)
+    set_command(left, right)
 
-
-async def handler(reader: asyncio.stream.StreamReader, writer: asyncio.StreamWriter):
+async def handler(set_command, reader: asyncio.stream.StreamReader, writer: asyncio.StreamWriter):
     """
     Async handler function to handle new connections.
     """
@@ -75,7 +77,7 @@ async def handler(reader: asyncio.stream.StreamReader, writer: asyncio.StreamWri
                 writer.write(block)
                 await writer.drain()
     elif request.startswith("GET /move?"):
-        process_move_request(request)
+        process_move_request(request, set_command)
         writer.write(MOVE_RESPONSE)
         await writer.drain()
     else:
@@ -86,8 +88,9 @@ async def handler(reader: asyncio.stream.StreamReader, writer: asyncio.StreamWri
 
 async def main():
     loop = asyncio.get_event_loop()
-    server = await asyncio.start_server(handler, "0.0.0.0", 80)
-    loop.create_task(motor_driver())  # Create a task to run the main function
+    md23 = MD23()
+    server = await asyncio.start_server(lambda r, w: handler(md23.set_command, r, w), "0.0.0.0", 80)
+    loop.create_task(md23.motor_task())  # Create a task to run the main function
     loop.run_forever()
 
 asyncio.run(main())
