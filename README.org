@@ -8,4 +8,31 @@
 
 *** Pinout
 
-[[file:lilygo-ttgo-t3-lora32-868mhz-v1.6.1-esp32-600x600w.jpg]]
+[[file:docs/lilygo-ttgo-t3-lora32-868mhz-v1.6.1-esp32-600x600w.jpg]]
+
+
+*** Pin Assignment
+
+|-----+-------------|
+| Pin | Function    |
+|-----+-------------|
+|  13 | SDA MD23    |
+|  14 | SCL MD23    |
+|-----+-------------|
+|  21 | SDA Display |
+|  22 | SCL Display |
+|-----+-------------|
+
+
+** MD23 Robotics Kit
+
+The MD23 robotics kit a a bundle of two motors with encoders and a
+control PCB.
+
+It accepts about *12V* as input voltage and provides a I2C + 5V/GND
+connector array.
+
+*Important*: the documentation doesn't state this clearly, but the
+device only operates at *100KHz* I2C bus frequency! If you use the very
+common 400KHz, you will observer random errors. Learned that the hard
+way.

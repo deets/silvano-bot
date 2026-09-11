@@ -18,9 +18,7 @@ class MD23:
 
     def drive(self, left, right):
         self._bus.writeto_mem(self.ADDRESS, self.MOTOR_LEFT, bytes([left]))
-        time.sleep_ms(5)
         self._bus.writeto_mem(self.ADDRESS, self.MOTOR_RIGHT, bytes([right]))
-        time.sleep_ms(5)
 
 i2c = I2C(0)
 i2c = I2C(1, scl=Pin(14), sda=Pin(13), freq=100000)
