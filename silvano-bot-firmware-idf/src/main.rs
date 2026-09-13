@@ -11,6 +11,7 @@ use esp_idf_svc::{
     },
     http::{Method, server::EspHttpServer},
     io::Write,
+    mdns::EspMdns,
     nvs::EspDefaultNvsPartition,
     wifi::{self, AccessPointConfiguration, AuthMethod, BlockingWifi, EspWifi},
 };
@@ -58,6 +59,12 @@ fn main() -> eyre::Result<()> {
         *movement_guard = parse_query_string_for_motor_movement(Some(req.uri()));
         req.into_ok_response().map(|_| ())
     })?;
+
+    // Setup mDNS
+    let mut mdns = EspMdns::take()?;
+    mdns.set_hostname("silvano-bot")?;
+    // Advertise the HTTP server
+    mdns.add_service(Some("Silvano Bot HTTP Server"), "_http", "_tcp", 80, &[])?;
 
     let i2c = peripherals.i2c1;
     let sda = peripherals.pins.gpio21;
