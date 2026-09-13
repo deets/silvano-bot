@@ -1,21 +1,29 @@
+use std::sync::{Arc, Mutex};
+
 use display::SilvanoBotDisplay;
 use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
     hal::{
-        delay::{FreeRtos, BLOCK},
+        delay::FreeRtos,
         i2c::{I2cConfig, I2cDriver},
         peripherals::Peripherals,
         units::*,
     },
+    http::{Method, server::EspHttpServer},
+    io::Write,
     nvs::EspDefaultNvsPartition,
     wifi::{self, AccessPointConfiguration, AuthMethod, BlockingWifi, EspWifi},
 };
+
 use log::info;
+use movement::{MovementController, parse_query_string_for_motor_movement};
 
 mod display;
+mod movement;
 
 const SSID: &str = "silvano-bot";
 const CHANNEL: u8 = 11;
+const INDEX_HTML: &[u8] = include_bytes!("../../assets/index.html");
 
 fn main() -> eyre::Result<()> {
     // It is necessary to call this function once. Otherwise, some patches to the runtime
@@ -36,18 +44,43 @@ fn main() -> eyre::Result<()> {
 
     connect_wifi(&mut wifi)?;
 
+    let movement_command = Arc::new(Mutex::new(None));
+    let server_movement_command = movement_command.clone();
+    let mut server = create_server()?;
+
+    server.fn_handler("/", Method::Get, |req| {
+        req.into_ok_response()?.write_all(INDEX_HTML).map(|_| ())
+    })?;
+    server.fn_handler("/move", Method::Get, move |req| {
+        let mut movement_guard = server_movement_command
+            .lock()
+            .expect("Can't lock movement_command");
+        *movement_guard = parse_query_string_for_motor_movement(Some(req.uri()));
+        req.into_ok_response().map(|_| ())
+    })?;
+
     let i2c = peripherals.i2c1;
     let sda = peripherals.pins.gpio21;
     let scl = peripherals.pins.gpio22;
 
     let config = I2cConfig::new().baudrate(400.kHz().into());
-    let i2c = I2cDriver::new(i2c, sda, scl, &config)?;
+    let display_i2c = I2cDriver::new(i2c, sda, scl, &config)?;
 
-    let mut display = SilvanoBotDisplay::new(i2c);
+    let config = I2cConfig::new().baudrate(100.kHz().into());
+    let motor_i2c = I2cDriver::new(
+        peripherals.i2c0,
+        peripherals.pins.gpio13,
+        peripherals.pins.gpio14,
+        &config,
+    )?;
+
+    let mut display = SilvanoBotDisplay::new(display_i2c);
+    let mut controller = MovementController::new(motor_i2c, movement_command.clone());
     loop {
         // we are sleeping here to make sure the watchdog isn't triggered
         display.update();
-        FreeRtos::delay_ms(100);
+        controller.drive()?;
+        FreeRtos::delay_ms(16);
     }
 }
 
@@ -75,4 +108,14 @@ fn connect_wifi(wifi: &mut BlockingWifi<EspWifi<'static>>) -> eyre::Result<()> {
     info!("Created Wi-Fi with WIFI_SSID `{SSID}`");
 
     Ok(())
+}
+
+const STACK_SIZE: usize = 10240;
+fn create_server() -> eyre::Result<EspHttpServer<'static>> {
+    let server_configuration = esp_idf_svc::http::server::Configuration {
+        stack_size: STACK_SIZE,
+        ..Default::default()
+    };
+
+    Ok(EspHttpServer::new(&server_configuration)?)
 }

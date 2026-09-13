@@ -1,5 +1,6 @@
 [build]
 target = "xtensa-esp32-espidf"
+target-dir = "/tmp/silvano-bot-firmware-idf"
 
 [target.'cfg(target_os = "espidf")']
 linker = "ldproxy"
