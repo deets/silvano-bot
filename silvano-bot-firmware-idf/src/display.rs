@@ -1,17 +1,14 @@
-use core::sync::atomic::AtomicU32;
-
-use embassy_time::{Duration, Ticker};
 use embedded_graphics::{
     geometry::Point,
-    mono_font::{ascii::FONT_6X10, MonoTextStyleBuilder},
+    mono_font::{MonoTextStyleBuilder, ascii::FONT_6X10},
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::{Circle, Line, PrimitiveStyleBuilder},
+    primitives::{Line, PrimitiveStyleBuilder},
     text::{Baseline, Text},
 };
 use esp_idf_svc::hal::i2c::I2cDriver;
-use ssd1306::{mode::BufferedGraphicsMode, prelude::*, I2CDisplayInterface};
-use ssd1306::{rotation::DisplayRotation, size::DisplaySize128x64, Ssd1306};
+use ssd1306::{I2CDisplayInterface, mode::BufferedGraphicsMode, prelude::*};
+use ssd1306::{Ssd1306, rotation::DisplayRotation, size::DisplaySize128x64};
 
 type DisplayType<'a> = Ssd1306<
     I2CInterface<I2cDriver<'a>>,
