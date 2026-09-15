@@ -17,9 +17,10 @@ use esp_idf_svc::{
 };
 
 use log::info;
-use movement::{MovementController, parse_query_string_for_motor_movement};
+use movement::{Movement, MovementController, parse_query_string_for_motor_movement};
 
 mod display;
+mod eyes;
 mod movement;
 
 const SSID: &str = "silvano-bot";
@@ -42,7 +43,6 @@ fn main() -> eyre::Result<()> {
         EspWifi::new(peripherals.modem, sys_loop.clone(), Some(nvs))?,
         sys_loop,
     )?;
-
     connect_wifi(&mut wifi)?;
 
     let movement_command = Arc::new(Mutex::new(None));
@@ -80,9 +80,10 @@ fn main() -> eyre::Result<()> {
         peripherals.pins.gpio14,
         &config,
     )?;
-
-    let mut display = SilvanoBotDisplay::new(display_i2c);
-    let mut controller = MovementController::new(motor_i2c, movement_command.clone());
+    let eye_movement = Arc::new(Mutex::new(Movement::default()));
+    let mut controller =
+        MovementController::new(motor_i2c, movement_command.clone(), eye_movement.clone());
+    let mut display = SilvanoBotDisplay::new(display_i2c, eye_movement);
     loop {
         // we are sleeping here to make sure the watchdog isn't triggered
         display.update();

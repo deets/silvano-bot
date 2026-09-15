@@ -29,6 +29,7 @@ embassy-time = { version = "0.5", features = ["generic-queue-8"] }
 eyre = "0.6.14"
 embedded-graphics = "0.8.2"
 ssd1306 = "0.10.0"
+num-traits = "0.2.19"
 
 [build-dependencies]
 embuild = "0.33"

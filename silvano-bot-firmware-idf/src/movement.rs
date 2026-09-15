@@ -5,7 +5,7 @@ use std::{
 
 use esp_idf_svc::hal::i2c::{I2cDriver, Operation};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Movement {
     pub left: f32,
     pub right: f32,
@@ -52,6 +52,7 @@ pub struct MovementController<'a> {
     bus: I2cDriver<'a>,
     last_update: Instant,
     command: Arc<Mutex<Option<Movement>>>,
+    eye_movement: Arc<Mutex<Movement>>,
 }
 
 const MD23_ADDRESS: u8 = 0x58;
@@ -72,11 +73,16 @@ pub struct MD23State {
 }
 
 impl<'a> MovementController<'a> {
-    pub fn new(bus: I2cDriver<'a>, command: Arc<Mutex<Option<Movement>>>) -> Self {
+    pub fn new(
+        bus: I2cDriver<'a>,
+        command: Arc<Mutex<Option<Movement>>>,
+        eye_movement: Arc<Mutex<Movement>>,
+    ) -> Self {
         Self {
             bus,
             last_update: Instant::now(),
             command,
+            eye_movement,
         }
     }
 
@@ -88,6 +94,7 @@ impl<'a> MovementController<'a> {
             .take();
         if let Some(movement) = movement {
             self.last_update = Instant::now();
+            *self.eye_movement.lock().unwrap() = movement.clone();
             self.set_motor(movement.left, movement.right)?;
         }
         if self.last_update.elapsed() > Duration::from_millis(500) {

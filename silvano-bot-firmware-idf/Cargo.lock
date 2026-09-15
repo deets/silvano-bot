@@ -1431,6 +1431,7 @@ dependencies = [
  "esp-idf-svc",
  "eyre",
  "log",
+ "num-traits",
  "ssd1306",
 ]
 
