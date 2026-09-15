@@ -17,21 +17,24 @@ use embedded_graphics::{
 use embedded_graphics_simulator::{
     BinaryColorTheme, OutputSettingsBuilder, SimulatorDisplay, SimulatorEvent, Window,
 };
+use num_traits::NumCast;
 
 /// Draws a digital clock with the current local time to the specified display
-fn draw_eye<D>(
-    left_right: f64,
-    top_down: f64,
+fn draw_eye<D, T>(
+    left_right: T,
+    top_down: T,
     top_left: Point,
     diameter: u32,
     display: &mut D,
 ) -> Result<(), D::Error>
 where
     D: DrawTarget<Color = BinaryColor>,
+    T: num_traits::real::Real + From<i32>,
 {
     let outline_style = PrimitiveStyleBuilder::new()
         .stroke_width(1)
         .stroke_color(BinaryColor::On)
+        .fill_color(BinaryColor::Off)
         .build();
     Circle::new(top_left, diameter)
         .into_styled(outline_style)
@@ -46,14 +49,24 @@ where
     // never leaves the eye.
     let rad = top_down.atan2(left_right);
     let mut length = left_right.powi(2) + top_down.powi(2).sqrt();
-    length = if length > 1.0 { 1.0 } else { length };
+    length = if length > T::one() { T::one() } else { length };
     let left_right = rad.cos() * length;
     let top_down = rad.sin() * length;
-
-    let left_right_offset =
-        ((diameter as f64 / 2.0 - 1.0 - pupil_diameter as f64 / 2.0) * left_right) as i32;
-    let top_down_offset =
-        ((diameter as f64 / 2.0 - 1.0 - pupil_diameter as f64 / 2.0) * top_down) as i32;
+    let two = T::one() + T::one();
+    let left_right_offset = <i32 as NumCast>::from(
+        (<T as NumCast>::from(diameter).unwrap() / two
+            - T::one()
+            - <T as NumCast>::from(pupil_diameter).unwrap() / two)
+            * left_right,
+    )
+    .unwrap();
+    let top_down_offset = <i32 as NumCast>::from(
+        (<T as NumCast>::from(diameter).unwrap() / two
+            - T::one()
+            - <T as NumCast>::from(pupil_diameter).unwrap() / two)
+            * top_down,
+    )
+    .unwrap();
 
     let pupil_tl = top_left
         + Point::new(
