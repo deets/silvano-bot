@@ -633,12 +633,15 @@
       async function sendStop() {
         const stopCoords = { left: 0, right: 0, x: 0, y: 0 };
         const queryString = getQueryString(stopCoords);
-        try {
-          await fetch(`/move?${queryString}`, {
-            method: 'GET',
-            cache: 'no-store'
-          });
-        } catch (_) {}
+        while(true) {
+          try {
+            await fetch(`/move?${queryString}`, {
+              method: 'GET',
+              cache: 'no-store'
+              });
+            break;
+          } catch (_) {}
+        }
       }
 
       function setMaxRadius(val) {
