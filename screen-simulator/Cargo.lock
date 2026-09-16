@@ -484,6 +484,7 @@ dependencies = [
  "embedded-graphics-simulator",
  "embedded-text",
  "num-traits",
+ "png",
  "tinybmp",
  "tinytga",
 ]

@@ -14,3 +14,6 @@ embedded-text = "0.7.2"
 num-traits = "0.2.19"
 tinybmp = "0.6.0"
 tinytga = "0.5.0"
+
+[build-dependencies]
+png = "0.18.1"
