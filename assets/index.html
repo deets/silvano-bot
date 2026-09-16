@@ -599,7 +599,9 @@
       function getQueryString(coords) {
         const params = new URLSearchParams({
           left: coords.left,
-          right: coords.right
+          right: coords.right,
+          x: coords.x,
+          y: coords.y
         });
         return params.toString();
       }
@@ -629,7 +631,7 @@
       }
 
       async function sendStop() {
-        const stopCoords = { left: 0, right: 0 };
+        const stopCoords = { left: 0, right: 0, x: 0, y: 0 };
         const queryString = getQueryString(stopCoords);
         try {
           await fetch(`/move?${queryString}`, {

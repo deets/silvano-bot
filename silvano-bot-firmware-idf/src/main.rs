@@ -85,10 +85,10 @@ fn main() -> eyre::Result<()> {
         MovementController::new(motor_i2c, movement_command.clone(), eye_movement.clone());
     let mut display = SilvanoBotDisplay::new(display_i2c, eye_movement);
     loop {
-        // we are sleeping here to make sure the watchdog isn't triggered
         display.update();
         controller.drive()?;
-        FreeRtos::delay_ms(16);
+        // we are sleeping here to make sure the watchdog isn't triggered
+        FreeRtos::delay_ms(1);
     }
 }
 

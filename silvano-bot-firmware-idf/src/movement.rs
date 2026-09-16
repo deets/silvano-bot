@@ -9,6 +9,8 @@ use esp_idf_svc::hal::i2c::{I2cDriver, Operation};
 pub struct Movement {
     pub left: f32,
     pub right: f32,
+    pub x: f32,
+    pub y: f32,
 }
 
 pub fn parse_query_string_for_motor_movement(path: Option<&'_ str>) -> Option<Movement> {
@@ -18,6 +20,8 @@ pub fn parse_query_string_for_motor_movement(path: Option<&'_ str>) -> Option<Mo
 
     let mut left = None;
     let mut right = None;
+    let mut x = None;
+    let mut y = None;
 
     for pair in query.split('&') {
         if pair.is_empty() {
@@ -26,20 +30,24 @@ pub fn parse_query_string_for_motor_movement(path: Option<&'_ str>) -> Option<Mo
         if let Some((key, val)) = pair.split_once('=') {
             match key.trim() {
                 "left" => {
-                    let parsed = decode_float(val)?;
-                    left = Some(parsed);
+                    left = Some(decode_float(val)?);
                 }
                 "right" => {
-                    let parsed = decode_float(val)?;
-                    right = Some(parsed);
+                    right = Some(decode_float(val)?);
+                }
+                "x" => {
+                    x = Some(decode_float(val)?);
+                }
+                "y" => {
+                    y = Some(decode_float(val)?);
                 }
                 _ => {}
             }
         }
     }
 
-    match (left, right) {
-        (Some(left), Some(right)) => Some(Movement { left, right }),
+    match (left, right, x, y) {
+        (Some(left), Some(right), Some(x), Some(y)) => Some(Movement { left, right, x, y }),
         _ => None,
     }
 }

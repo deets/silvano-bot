@@ -1,7 +1,11 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    sync::{Arc, Mutex},
+    time::Instant,
+};
 
 use embedded_graphics::{
     geometry::Point,
+    image::{Image, ImageRaw},
     mono_font::{MonoTextStyleBuilder, ascii::FONT_6X10},
     pixelcolor::BinaryColor,
     prelude::*,
@@ -14,6 +18,8 @@ use ssd1306::{Ssd1306, rotation::DisplayRotation, size::DisplaySize128x64};
 
 use crate::{eyes::draw_eye, movement::Movement};
 
+include!(concat!(env!("OUT_DIR"), "/pcb.rs"));
+
 type DisplayType<'a> = Ssd1306<
     I2CInterface<I2cDriver<'a>>,
     DisplaySize128x64,
@@ -24,7 +30,24 @@ pub struct SilvanoBotDisplay<'a> {
     display: DisplayType<'a>,
     eye_movement: Arc<Mutex<Movement>>,
     liveness: usize,
+    start: Instant,
 }
+
+// For a nice bouncing effect, this should
+// return a value that spans
+//   0..max
+// and oscillates from 0 -> max - 1 -> 0
+// in a linear fashion.
+fn mirror(v: i32, max: i32) -> i32 {
+    let segment = v % (max * 2);
+    if segment > (max - 1) {
+        max + (max - segment) - 1
+    } else {
+        segment
+    }
+}
+
+const RAW_IMAGE: ImageRaw<BinaryColor> = ImageRaw::<BinaryColor>::new(IMAGE, IMAGE_WIDTH);
 
 impl<'a> SilvanoBotDisplay<'a> {
     pub fn new(bus: I2cDriver<'a>, eye_movement: Arc<Mutex<Movement>>) -> Self {
@@ -36,41 +59,34 @@ impl<'a> SilvanoBotDisplay<'a> {
             display,
             eye_movement,
             liveness: 0,
+            start: Instant::now(),
         }
     }
 
     pub fn update(&mut self) {
-        let (left, right) = self.eye_movement();
-        let ((dsx, dsy), (dex, dey)) = self.display_task_progress_indicator();
+        let offset = (self.start.elapsed().as_millis() / 50) as i32;
+        let image_x = mirror(offset, 256 - 128);
+        let image_y = mirror(offset, 256 - 64);
+        let image = Image::new(&RAW_IMAGE, Point::new(-image_x, -image_y));
+
+        let (left_right, top_down) = self.eye_movement();
         let display = &mut self.display;
         display.clear(BinaryColor::Off).unwrap();
-        let style = PrimitiveStyleBuilder::new()
-            .stroke_width(1)
-            .stroke_color(BinaryColor::On)
-            .build();
-
-        Line::new(Point::new(dsx, dsy), Point::new(dex, dey))
-            .into_styled(style)
-            .draw(display)
-            .unwrap();
-        draw_eye(left, 0.0, Point::new(8, 8), 48, display).unwrap();
-        draw_eye(right, 0.0, Point::new(128 - 48 - 8 - 1, 8), 48, display).unwrap();
+        image.draw(display).unwrap();
+        draw_eye(left_right, top_down, Point::new(8, 8), 48, display).unwrap();
+        draw_eye(
+            left_right,
+            top_down,
+            Point::new(128 - 48 - 8 - 1, 8),
+            48,
+            display,
+        )
+        .unwrap();
         display.flush().unwrap();
-    }
-
-    fn display_task_progress_indicator(&mut self) -> ((i32, i32), (i32, i32)) {
-        self.liveness += 1;
-        // Going in a 3x3 circle
-        let v = self.liveness as i32 % 14;
-        if v < 8 {
-            ((0, v), (2, v))
-        } else {
-            ((0, 14 - v), (2, 14 - v))
-        }
     }
 
     fn eye_movement(&self) -> (f64, f64) {
         let guard = self.eye_movement.lock().unwrap();
-        (guard.left as f64, guard.right as f64)
+        (-guard.x as f64, guard.y as f64)
     }
 }
