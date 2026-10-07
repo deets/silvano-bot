@@ -76,7 +76,8 @@ are their pins.
 ** MD23 Robotics Kit
 
 The MD23 robotics kit a a bundle of two motors with encoders and a
-control PCB.
+control PCB. See [[file:docs/m=][the documentation]] for a full description of the
+features.
 
 It accepts about *12V* as input voltage and provides a I2C + 5V/GND
 connector array.
