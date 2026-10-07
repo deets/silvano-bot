@@ -11,7 +11,7 @@ Silvano-Bot is a small robotics platform to experiment with.
  - Control the robot using your finger. Adjust the slider on the top
    for the maximum speed.
 
-[[file:docs/Silvano Bot.png]]
+[[file:docs/SilvanoBot.png]]
 
 *** Issues on Android
 
