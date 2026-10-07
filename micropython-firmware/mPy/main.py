@@ -8,7 +8,7 @@ ap = network.WLAN(network.WLAN.IF_AP) # create access-point interface
 ap.config(ssid='esp-radio')              # set the SSID of the access point
 ap.config(max_clients=10)             # set how many clients can connect to the network
 ap.active(True)
-print("HALLO DIEZ", ap.ifconfig())
+print("AP config", ap.ifconfig())
 
 class MD23:
 
@@ -40,22 +40,6 @@ class MD23:
 
     def set_command(self, left, right):
         self._command = (left << 1, right << 1)
-
-INDEX_HTML_HEADER = """HTTP/1.0 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-cache\r\n\r\n"""
-MOVE_RESPONSE = """HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nCache-Control: no-cache\r\n\r\n{}"""
-ERROR_RESPONSE = """HTTP/1.0 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n"""
-
-
-def parse_arg(arg):
-    number = arg.split("=")[1]
-    return float(number)
-
-
-def process_move_request(request, set_command):
-    args = request.decode("ascii").split("?")[1].split("HTTP")[0].strip()
-    left, right = args.split("&")
-    left, right = parse_arg(left), parse_arg(right)
-    set_command(left, right)
 
 async def handler(set_command, reader: asyncio.stream.StreamReader, writer: asyncio.StreamWriter):
     """

@@ -51,9 +51,7 @@ def find_index_html(custom_path: str | None = None) -> Path:
 
     base_dir = Path(__file__).resolve().parent
     candidates = [
-        base_dir / "silvano-bot-firmware" / "assets" / "index.html",
-        base_dir / "assets" / "index.html",
-        base_dir / "index.html",
+        base_dir / "../assets" / "index.html",
     ]
     for candidate in candidates:
         if candidate.is_file():

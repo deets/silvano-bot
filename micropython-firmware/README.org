@@ -1,0 +1,11 @@
+* Micropython Firmware
+
+The Micropython (mPy) firmware can operate the MD23 kit. It does currently
+not operate the display.
+
+For performance reasons, the implementation is split into two:
+
+ - the mPy code itself, that just listens to two incoming bytes,
+   left/right speed.
+ - A [[file:server.py][server side script]] that must run on e.g. a laptop to display the
+   web-interface and send control commands via socket.
